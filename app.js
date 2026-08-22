@@ -959,13 +959,38 @@ document.addEventListener('DOMContentLoaded', () => {
             return container;
         },
 
-                setupTextInputEvents(container, maskId) {
+        setupTextInputEvents(container, maskId) {
             const input = container.querySelector('input');
             container.querySelector('#submit-text-answer').addEventListener('click', () => this.checkAnswer(input.value, maskId));
             container.querySelector('#cancel-text-answer').addEventListener('click', () => this.cancelTextInput());
             container.querySelector('#mic-start-btn').addEventListener('click', () => SpeechManager.toggle());
             input.addEventListener('keypress', e => { if (e.key === 'Enter') this.checkAnswer(input.value, maskId); });
+
+            // ★追加：Tab / Shift+Tab、Ctrl+→ / Ctrl+← でマスク間を移動
+            input.addEventListener('keydown', e => {
+                if (e.isComposing || e.keyCode === 229) return; // IME変換中は無視
+                let direction = 0;
+                if (e.key === 'Tab') direction = e.shiftKey ? -1 : 1;
+                else if (e.ctrlKey && e.key === 'ArrowRight') direction = 1;
+                else if (e.ctrlKey && e.key === 'ArrowLeft') direction = -1;
+                if (direction === 0) return;
+                e.preventDefault();
+                this.moveToAdjacentMask(direction);
+            });
+
             SpeechManager.updateMicButtonUI();
+        },
+
+        // ★追加：現在解答中のマスクから前後のマスクへ移動する
+        moveToAdjacentMask(direction) {
+            if (AppState.isMobileMode || !AppState.currentAnsweringMaskId) return;
+            const zones = Array.from(DOM.dropZoneContainerExercise.querySelectorAll('.drop-zone-element'));
+            if (zones.length <= 1) return;
+            const currentIndex = zones.findIndex(z => z.dataset.maskId === AppState.currentAnsweringMaskId);
+            if (currentIndex === -1) return;
+            const nextIndex = (currentIndex + direction + zones.length) % zones.length;
+            const nextZone = zones[nextIndex];
+            this.showTextInputForMask(nextZone.dataset.maskId, nextZone);
         },
 
 
