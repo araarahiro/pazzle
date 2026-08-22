@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スクリーンショットマスキングクイズ - 超派手版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <meta name="description" content="画像をマスキングして学習できる超派手なクイズアプリケーション">
+    <meta name="keywords" content="クイズ, 学習, マスキング, 画像, 教育">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="loadingOverlay" class="fixed inset-0 bg-white bg-opacity-90 z-50 flex items-center justify-center backdrop-blur-sm">
+        <div class="text-center">
+            <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32 mx-auto"></div>
+            <p class="mt-6 text-xl font-semibold text-gray-700 animate-pulse">✨ データを読み込んでいます... ✨</p>
+            <div class="mt-4 flex justify-center space-x-2">
+                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
+        <header class="mb-6 text-center">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                🎯 スクリーンショットマスキングクイズ 🎯
+            </h1>
+            <div id="globalHeaderInfo" class="text-center text-sm text-gray-500 mt-2 h-5 font-medium"></div>
+            <div class="w-24 h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent mx-auto mt-2 rounded-full"></div>
+        </header>
+
+        <div id="menuModeDiv" class="mode-container">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-semibold text-gray-700">📚 メニュー</h2>
+            </div>
+            <div class="flex flex-col items-center space-y-6">
+                <button class="px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 w-full max-w-xs shadow-lg transform hover:scale-105" data-action="create-new-book">
+                    🆕 新しい問題集を作成
+                </button>
+                <button class="px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300 w-full max-w-xs shadow-lg transform hover:scale-105" data-action="switch-mode" data-mode="quizBookSelection">
+                    📖 問題集を選択・編集
+                </button>
+                <label for="importFromJsonInput" class="px-8 py-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-300 w-full max-w-xs text-center cursor-pointer shadow-lg transform hover:scale-105">
+                    📥 ファイルからインポート
+                </label>
+                <input type="file" id="importFromJsonInput" class="hidden" accept=".json"/>
+            </div>
+        </div>
+
+        <div id="quizBookSelectionModeDiv" class="mode-container mode-hidden">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-semibold text-gray-700">📚 問題集選択</h2>
+                <button class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-sm" data-action="switch-mode" data-mode="menu">🔙 メニューに戻る</button>
+            </div>
+            <div id="quizBookSelectionContainer" class="mb-4 p-4 bg-white rounded-lg shadow min-h-[200px] space-y-3"></div>
+        </div>
+       
+        <div id="problemManagementModeDiv" class="mode-container mode-hidden">
+            <div class="flex justify-between items-center mb-2">
+                <h2 id="problemManagementTitle" class="text-2xl font-semibold text-gray-700"></h2>
+                <button class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-sm" data-action="switch-mode" data-mode="quizBookSelection">🔙 問題集選択に戻る</button>
+            </div>
+            
+            <div id="importanceFilterContainer" class="my-4 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-lg border border-blue-200">
+                <h4 class="font-semibold text-gray-800 mb-3 flex items-center">
+                    ⭐ 重要度で問題を絞り込む
+                </h4>
+                <div class="flex items-center space-x-6">
+                    <label class="flex items-center space-x-2 cursor-pointer hover:bg-yellow-100 px-2 py-1 rounded transition-colors">
+                        <input type="checkbox" value="☆" class="importance-filter-cb h-4 w-4 text-amber-500 border-gray-300 rounded focus:ring-amber-400">
+                        <span class="text-yellow-600 font-bold text-lg">☆</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer hover:bg-yellow-100 px-2 py-1 rounded transition-colors">
+                        <input type="checkbox" value="☆☆" class="importance-filter-cb h-4 w-4 text-amber-500 border-gray-300 rounded focus:ring-amber-400">
+                        <span class="text-yellow-600 font-bold text-lg">☆☆</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer hover:bg-yellow-100 px-2 py-1 rounded transition-colors">
+                        <input type="checkbox" value="☆☆☆" class="importance-filter-cb h-4 w-4 text-amber-500 border-gray-300 rounded focus:ring-amber-400">
+                        <span class="text-yellow-600 font-bold text-lg">☆☆☆</span>
+                    </label>
+                    <button class="ml-auto px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-md hover:from-green-600 hover:to-green-700 transition-all duration-300 text-sm font-semibold shadow-md transform hover:scale-105" data-action="start-filtered-exercise">
+                        🚀 この条件で演習開始
+                    </button>
+                </div>
+            </div>
+
+            <div id="problemListSidebarTop" class="mb-4"> 
+                <div id="problemListTitleContainer" class="flex justify-between items-center mb-3">
+                    <h3 class="text-xl font-semibold flex items-center">📝 問題リスト</h3>
+                    <div class="space-x-2">
+                        <button class="px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-md hover:from-green-700 hover:to-green-800 text-sm shadow-md transform hover:scale-105 transition-all duration-300" data-action="start-selected-exercise">
+                            ▶️ 選択した問題で演習
+                        </button>
+                        <label for="addNewQuizInput" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-md hover:from-blue-600 hover:to-blue-700 text-sm cursor-pointer shadow-md transform hover:scale-105 transition-all duration-300">
+                            ➕ 新しい問題を追加
+                        </label>
+                        <input type="file" id="addNewQuizInput" accept="image/*" class="hidden"/>
+                    </div>
+                </div>
+                <div id="problemListContainerTop" class="min-h-[100px] max-h-[45vh] overflow-y-auto border p-2 rounded-md bg-gray-50 space-y-2"></div>
+            </div>
+        </div>
+
+        <div id="creationModeDiv" class="mode-container mode-hidden">
+            <div class="flex justify-between items-center mb-2">
+                <p id="currentCreatingQuizTitle" class="text-2xl font-semibold text-gray-700"></p>
+                <div>
+                    <button class="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-md hover:from-green-600 hover:to-green-700 text-sm mr-2 shadow-md transform hover:scale-105 transition-all duration-300" data-action="exercise-current">
+                        🎯 この問題で演習
+                    </button>
+                    <button class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-sm" data-action="switch-mode" data-mode="problemManagement">🔙 問題リストに戻る</button>
+                </div>
+            </div>
+            <div class="text-center mb-4 space-x-2">
+                <button id="prevProblemCreationButton" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors text-sm transform hover:scale-105" data-action="prev-problem-creation">⬅️ 前の問題</button>
+                <span id="problemCounterCreation" class="text-sm text-gray-600 font-medium"></span>
+                <button id="nextProblemCreationButton" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors text-sm transform hover:scale-105" data-action="next-problem-creation">次の問題 ➡️</button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div id="imageContainerWrapperCreation" class="md:col-span-1 bg-white rounded-lg shadow-lg p-4 relative min-h-[500px] flex items-center justify-center border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors">
+                    <div id="imageDisplayAreaCreation" class="relative w-full h-full">
+                        <canvas id="imageCanvas" class="canvas-element rounded-md shadow-sm"></canvas>
+                        <div id="selectionRectangle"></div>
+                        <div id="dropZoneAndButtonContainerCreation" class="absolute top-0 left-0 w-full h-full pointer-events-none"></div>
+                    </div>
+                </div>
+                
+                <div class="md:col-span-1 bg-white rounded-lg shadow-lg p-4 flex flex-col"> 
+                    <div class="border-b pb-3 mb-3">
+                        <h2 class="text-lg font-semibold text-gray-800 flex items-center">🎭 作成されたマスク（選択肢）</h2>
+                        <p class="text-xs text-gray-500 mt-1">マスクをクリックでテキスト編集。下のボタンで重要度やグループを連続設定できます。</p>
+                    </div>
+                    
+                    <div id="importanceSetterContainer" class="p-3 border-b mb-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-md border border-blue-200">
+                        <span class="text-sm font-semibold mr-3 flex items-center">⭐ 重要度一括設定:</span>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <button class="importance-setter-btn px-3 py-1 text-sm rounded border border-yellow-300 hover:bg-yellow-100 transition-colors" data-action="set-importance" data-importance="☆">☆</button>
+                            <button class="importance-setter-btn px-3 py-1 text-sm rounded border border-yellow-300 hover:bg-yellow-100 transition-colors" data-action="set-importance" data-importance="☆☆">☆☆</button>
+                            <button class="importance-setter-btn px-3 py-1 text-sm rounded border border-yellow-300 hover:bg-yellow-100 transition-colors" data-action="set-importance" data-importance="☆☆☆">☆☆☆</button>
+                            <button class="px-3 py-1 text-sm rounded bg-gray-400 text-white hover:bg-gray-500 transition-colors" data-action="cancel-importance-mode">❌ 解除</button>
+                        </div>
+                    </div>
+                    
+                    <div id="groupSetterContainer" class="p-3 border-b mb-3 bg-gradient-to-r from-green-50 to-teal-50 rounded-md border border-green-200">
+                        <span class="text-sm font-semibold mr-3 flex items-center">🏷️ グループ一括設定:</span>
+                        <div class="flex flex-wrap gap-1 mt-2">
+                            <div id="groupSetterButtons" class="inline-flex flex-wrap gap-1"></div>
+                            <button class="group-setter-btn px-3 py-1 text-sm rounded ml-2 border border-gray-300 hover:bg-gray-100 transition-colors" data-action="set-group" data-group-id="null">🚫 未設定</button>
+                            <button class="px-3 py-1 text-sm rounded bg-gray-400 text-white hover:bg-gray-500 ml-2 transition-colors" data-action="cancel-group-mode">❌ 解除</button>
+                        </div>
+                    </div>
+                    
+                    <div id="optionsContainerCreation" class="min-h-[100px] p-2 flex-grow overflow-y-auto space-y-2 bg-gray-50 rounded-md"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="exerciseModeDiv" class="mode-container mode-hidden">
+            <div class="flex justify-between items-center mb-2">
+                <p id="currentExerciseQuizTitle" class="text-2xl font-semibold text-gray-700"></p>
+                <div>
+                    <button class="px-4 py-2 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white rounded-md hover:from-yellow-600 hover:to-yellow-700 text-sm mr-2 shadow-md transform hover:scale-105 transition-all duration-300" data-action="edit-current-exercise">
+                        ✏️ この問題を編集
+                    </button>
+                    <button class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-sm" data-action="switch-mode" data-mode="problemManagement">🔙 問題リストに戻る</button>
+                </div>
+            </div>
+            
+            <div id="importanceFilterContainerExercise" class="my-4 p-4 bg-gradient-to-r from-gray-50 to-cyan-50 rounded-lg border border-cyan-200">
+                <h4 class="font-semibold text-gray-800 mb-3 flex items-center">🔍 この問題セット内で絞り込む</h4>
+                <div class="flex items-center space-x-6">
+                    <label class="flex items-center space-x-2 cursor-pointer hover:bg-yellow-100 px-2 py-1 rounded transition-colors">
+                        <input type="checkbox" value="☆" class="importance-filter-cb-exercise h-4 w-4 text-amber-500 border-gray-300 rounded focus:ring-amber-400">
+                        <span class="text-yellow-600 font-bold">☆</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer hover:bg-yellow-100 px-2 py-1 rounded transition-colors">
+                        <input type="checkbox" value="☆☆" class="importance-filter-cb-exercise h-4 w-4 text-amber-500 border-gray-300 rounded focus:ring-amber-400">
+                        <span class="text-yellow-600 font-bold">☆☆</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer hover:bg-yellow-100 px-2 py-1 rounded transition-colors">
+                        <input type="checkbox" value="☆☆☆" class="importance-filter-cb-exercise h-4 w-4 text-amber-500 border-gray-300 rounded focus:ring-amber-400">
+                        <span class="text-yellow-600 font-bold">☆☆☆</span>
+                    </label>
+                    <button class="ml-auto px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 text-white rounded-md hover:from-cyan-600 hover:to-cyan-700 transition-all duration-300 text-sm font-semibold shadow-md transform hover:scale-105" data-action="start-filtered-exercise-in-session">
+                        🔄 この条件で再構成
+                    </button>
+                </div>
+            </div>
+            
+            <div class="text-center mb-4 space-x-2">
+                <button id="prevProblemButton" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors text-sm transform hover:scale-105" data-action="prev-problem-exercise">⬅️ 前の問題</button>
+                <span id="problemCounter" class="text-sm text-gray-600 font-medium px-4 py-2 bg-white rounded-md shadow-sm"></span>
+                <button id="nextProblemButton" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors text-sm transform hover:scale-105" data-action="next-problem-exercise">次の問題 ➡️</button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-6"> 
+                <div id="imageContainerWrapperExercise" class="md:col-span-9 bg-gray-200 rounded-lg shadow-inner relative h-[85vh] flex items-center justify-center overflow-auto border-4 border-dashed border-gray-400">
+                    <div id="imageDisplayAreaExercise" class="relative"> 
+                        <canvas id="imageCanvasExercise" class="canvas-element block rounded-md shadow-sm" style="pointer-events: none;"></canvas> 
+                        <div id="dropZoneContainerExercise" class="absolute top-0 left-0"></div> 
+                    </div>
+                </div>
+                
+                <div class="md:col-span-3 bg-white rounded-lg shadow-lg p-4 flex flex-col h-[85vh] border-l-4 border-blue-500">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-3 border-b pb-2 flex items-center">
+                        🎯 選択肢
+                    </h2>
+                    <div id="exerciseTextInputContainer" class="mb-2"></div>
+                    <div id="optionsContainerExercise" class="min-h-[150px] bg-gray-50 rounded-md p-2 flex-grow overflow-y-auto border-2 border-dashed border-gray-300"></div>
+                </div>
+            </div>
+            
+            <div id="zoomSliderContainer" class="mt-6 w-full text-center flex justify-center items-center space-x-4 bg-white rounded-lg p-4 shadow-md">
+                <label for="zoomSlider" class="text-sm font-medium text-gray-700 flex items-center">🔍 拡大率:</label>
+                <input type="range" id="zoomSlider" min="0.2" max="3.0" value="1" step="0.1" class="w-48 sm:w-64 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-thumb">
+                <span id="zoomValue" class="text-sm text-gray-600 w-12 text-left font-mono bg-gray-100 px-2 py-1 rounded">1.0x</span>
+            </div>
+            
+            <div class="mt-6 text-center">
+                <button id="retryProblemButton" class="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 transform hover:scale-105" data-action="retry-problem">
+                    🔄 鍛錬ポイントをリセットしてやり直す
+                </button>
+            </div>
+        </div>
+
+        <div id="messageArea" class="mt-6 text-gray-700 font-medium p-4 bg-blue-100 border border-blue-300 rounded-lg shadow-sm text-center relative overflow-hidden">
+            ✨ アプリケーションへようこそ！ ✨
+        </div>
+
+        <div class="mt-6 text-center space-x-4">
+            <button id="toggleMobileModeButton" class="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 transform hover:scale-105" data-action="toggle-mobile-mode">
+                📱 スマホモードに切替
+            </button>
+            <button id="exportAllButton" class="bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 transform hover:scale-105" data-action="export-all-data">
+                📤 全データエクスポート
+            </button>
+            <button id="resetButton" class="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 transform hover:scale-105" data-action="reset-all">
+                🗑️ 全初期化
+            </button>
+        </div>
+    </div>
+    
+    <div id="problemActionModal" class="mode-hidden fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
+        <div class="relative top-20 mx-auto p-6 border w-96 shadow-2xl rounded-xl bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-xl leading-6 font-bold text-gray-900 mb-2" id="modalTitle">🔧 問題の操作</h3>
+                <div class="mt-4 px-7 py-3">
+                    <p class="text-sm text-gray-500 mb-4 font-medium" id="modalProblemTitle"></p>
+                    <div class="mb-4">
+                        <label for="targetQuizBookSelect" class="block text-sm font-medium text-gray-700 mb-2">📚 対象の問題集:</label>
+                        <select id="targetQuizBookSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-sm"></select>
+                    </div>
+                </div>
+                <div class="items-center px-4 py-3 space-x-3">
+                    <button id="copyProblemButton" data-action="confirm-copy" class="px-6 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-base font-medium rounded-md hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-300 transform hover:scale-105">
+                        📋 複製
+                    </button>
+                    <button id="moveProblemButton" data-action="confirm-move" class="px-6 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-base font-medium rounded-md hover:from-green-600 hover:to-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-300 transform hover:scale-105">
+                        📦 移動
+                    </button>
+                    <button id="cancelModalButton" data-action="cancel-modal" class="px-6 py-2 bg-gray-500 text-white text-base font-medium rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all duration-300">
+                        ❌ キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/idb@7/build/umd.js"></script>
+    <script src="app.js"></script>
+
+    <script>
+        // Preload sound effects (optional)
+        const audioPreload = () => {
+            try {
+                const correctSound = new Audio('sounds/correct.mp3');
+                correctSound.preload = 'auto';
+                correctSound.volume = 0.5;
+            } catch (e) {
+                console.log('Audio preload failed - this is OK');
+            }
+        };
+        
+        // Call preload when page is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', audioPreload);
+        } else {
+            audioPreload();
+        }
+        
+        // Service Worker registration for offline support (optional)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => console.log('SW registered'))
+                    .catch(registrationError => console.log('SW registration failed'));
+            });
+        }
+    </script>
+</body>
+</html>

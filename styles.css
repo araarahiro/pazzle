@@ -1,0 +1,199 @@
+/* 基本設定 */
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+/* キャンバス要素 */
+.canvas-element {
+    cursor: crosshair;
+    touch-action: none;
+}
+
+/* 一般的なクラス */
+.mode-hidden {
+    display: none !important;
+}
+
+/* ドロップゾーン関連 */
+.drop-zone-element {
+    position: absolute;
+    border: 2px dashed transparent;
+    background-color: rgba(200, 200, 200, 0.0);
+    box-sizing: border-box;
+    pointer-events: auto;
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+.drop-zone-element.drag-over {
+    background-color: rgba(59, 130, 246, 0.2);
+    border-color: #2563eb;
+    transform: scale(1.03);
+    box-shadow: 0 0 15px rgba(37, 99, 235, 0.5);
+}
+
+/* 演習画面の画像コンテナ */
+#imageContainerWrapperExercise {
+    overflow: auto;
+    position: relative;
+    cursor: grab;
+}
+
+#imageDisplayAreaExercise {
+    transform-origin: top left;
+    position: relative;
+}
+
+/* 作成時の選択範囲 */
+#selectionRectangle {
+    position: absolute;
+    border: 2px dashed #3b82f6;
+    background-color: rgba(59, 130, 246, 0.2);
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+}
+
+/* 解答中のアクティブなマスクをハイライト (PCモード) */
+.active-mask-highlight {
+    box-shadow: 0 0 20px rgba(13, 110, 253, 0.8);
+    border: 3px solid rgba(13, 110, 253, 0.9) !important;
+    animation: activeMaskPulse 2s infinite;
+    z-index: 20;
+}
+
+@keyframes activeMaskPulse {
+    50% { box-shadow: 0 0 30px rgba(13, 110, 253, 1); transform: scale(1.02); }
+}
+
+/* 不正解時のシェイクアニメーション */
+.shake-animation {
+    animation: shake 0.6s ease-in-out;
+}
+
+@keyframes shake {
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-8px); }
+    20%, 40%, 60%, 80% { transform: translateX(8px); }
+}
+
+/* 正解・不正解アニメーション */
+.correct-o-animation, .incorrect-x-animation {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 80px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 25;
+}
+.correct-o-animation {
+    color: #10b981;
+    text-shadow: 0 0 20px rgba(16, 185, 129, 0.8);
+    animation: correctOAnimation 1s ease-out forwards;
+}
+.incorrect-x-animation {
+    color: #ef4444;
+    text-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+    animation: incorrectXAnimation 1.2s ease-out forwards;
+}
+
+@keyframes correctOAnimation {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.3); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(2); }
+}
+@keyframes incorrectXAnimation {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(0.5) rotate(0deg); }
+    50% { transform: translate(-50%, -50%) scale(1.2) rotate(-10deg); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5) rotate(10deg); }
+}
+
+/* 音声入力マイクボタン */
+.mic-button.is-recording {
+    background-color: #ef4444 !important;
+    animation: micRecording 1.5s infinite;
+}
+@keyframes micRecording {
+    50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); transform: scale(1.1); }
+}
+
+/* Loading Overlay Spinner */
+.loader {
+    border-top-color: #3498db;
+    animation: spin 1.5s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 演習選択肢のレイアウト */
+#optionsContainerExercise {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    align-content: flex-start;
+}
+#optionsContainerExercise .option-item-wrapper {
+    transition: all 0.2s ease;
+    cursor: grab;
+}
+#optionsContainerExercise .option-item-wrapper:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+#optionsContainerExercise .option-item-wrapper img {
+    max-width: 100%;
+    height: 45px;
+    object-fit: contain;
+}
+
+/* --- スマホモード専用スタイル --- */
+.mobile-mode #optionsContainerExercise {
+    grid-template-columns: repeat(2, 1fr); /* スマホでは2列表示 */
+    gap: 10px;
+}
+.mobile-mode .option-item-wrapper {
+    cursor: pointer;
+    border-width: 2px;
+}
+/* スマホモードで選択肢をタップした時のハイライト */
+.mobile-mode .option-item-wrapper.mobile-selected {
+    border-color: #2563eb;
+    transform: scale(1.05);
+    box-shadow: 0 0 15px rgba(37, 99, 235, 0.5);
+}
+/* スマホモードでマスクをタップした時のハイライト */
+.mobile-mode .drop-zone-element.mobile-selected {
+    background-color: rgba(59, 130, 246, 0.3);
+    border: 2px solid #2563eb;
+    box-shadow: 0 0 15px rgba(37, 99, 235, 0.6);
+}
+
+/* PCモードでのドラッグ操作無効化 */
+.mobile-mode .option-item-wrapper {
+    cursor: pointer;
+}
+.mobile-mode .option-item-wrapper:hover {
+    transform: none; /* ホバーでの移動を無効化 */
+    box-shadow: none;
+}
+.mobile-mode .option-item-wrapper:active {
+    transform: scale(0.95); /* タップ時のフィードバック */
+}
+
+
+/* 超派手クリアアニメーション関連 */
+#clearAnimationOverlay .problem-clear-spectacular, #clearAnimationOverlay .all-complete-spectacular {
+    animation: spectacularEntry 1s ease-out;
+}
+@keyframes spectacularEntry {
+    from { opacity: 0; transform: scale(0.8) translateY(20px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.trophy-bounce { animation: trophyBounce 2s ease-in-out infinite; }
+@keyframes trophyBounce { 50% { transform: scale(1.2) rotate(5deg); } }
+.clear-burst { animation: clearBurst 1.5s ease-out; }
+@keyframes clearBurst { 50% { transform: scale(1.3) rotate(180deg); } }
+.clear-text-glow { animation: textGlow 2s ease-in-out infinite alternate; }
+@keyframes textGlow { 100% { text-shadow: 0 0 20px rgba(34, 197, 94, 0.8); } }

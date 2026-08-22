@@ -1,0 +1,1466 @@
+/**
+ * Screenshot Masking Quiz Application - 最適化 & スマホ対応版
+ * * 主な改善点：
+ * 1. スマホモード搭載：タップ操作による快適な解答体験を実現。PC/スマホモードの切り替え機能。
+ * 2. パフォーマンス最適化：DOM操作の効率化、イベントリスナーの最適管理。
+ * 3. コード品質向上：命名規則の統一、関数の責務分離、可読性の高い構造へリファクタリング。
+ * 4. 既存機能の維持：派手なアニメーションや全てのクイズ機能を完全に保持。
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    'use strict';
+
+    const DB_NAME = 'QuizAppDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'quizBooks';
+    let db;
+
+    // --- 1. State Management (スマホモード対応) ---
+    const AppState = {
+        masterQuizList: [],
+        isDataLoaded: false,
+        currentMode: 'menu',
+        currentQuizBookId: null,
+        currentProblemIndexCreation: 0,
+        currentProblemIndexExercise: 0,
+        isSelecting: false,
+        currentSelectionRect: null,
+        exerciseData: [], 
+        originalExerciseProblems: [],
+        exerciseRound: 1,
+        isFirstRound: true,
+        importanceSelectMode: false,
+        selectedImportance: '☆',
+        isGroupSelectMode: false,
+        selectedGroupId: null,
+        isPanning: false,
+        panStart: { x: 0, y: 0 },
+        panStartScroll: { left: 0, top: 0 },
+        speechRecognition: null,
+        isRecognizing: false,
+        currentAnsweringMaskId: null,
+        isModalOpen: false,
+        problemToAction: { sourceBookId: null, quizId: null },
+        shouldShuffleOptions: true,
+        currentOptionOrder: [],
+        isMobileMode: false, // スマホモードの状態
+        selectedMaskForMobile: null, // スマホモードで選択中のマスクID
+        // キャッシュ用変数
+        _currentQuizBookCache: null,
+        _currentCreationQuizCache: null,
+
+        getCurrentQuizBook() {
+            if (this._currentQuizBookCache?.id === this.currentQuizBookId) {
+                return this._currentQuizBookCache;
+            }
+            this._currentQuizBookCache = this.masterQuizList.find(qb => qb.id === this.currentQuizBookId);
+            return this._currentQuizBookCache;
+        },
+        getCurrentCreationQuiz() {
+            const book = this.getCurrentQuizBook();
+            if (!book?.quizzes) return null;
+            const quiz = book.quizzes[this.currentProblemIndexCreation];
+            if (this._currentCreationQuizCache?.id === quiz?.id) {
+                return this._currentCreationQuizCache;
+            }
+            this._currentCreationQuizCache = quiz;
+            return quiz;
+        },
+        getCurrentExerciseQuiz() {
+            return this.exerciseData[this.currentProblemIndexExercise];
+        },
+        clearCache() {
+            this._currentQuizBookCache = null;
+            this._currentCreationQuizCache = null;
+        }
+    };
+
+    // --- 2. DOM Element Cache (スマホモード対応) ---
+    const DOM = (() => {
+        const elements = {};
+        const elementIds = [
+            'loadingOverlay', 'menuModeDiv', 'quizBookSelectionModeDiv', 'problemManagementModeDiv',
+            'creationModeDiv', 'exerciseModeDiv', 'imageCanvas', 'imageCanvasExercise',
+            'quizBookSelectionContainer', 'problemListContainerTop', 'optionsContainerCreation',
+            'optionsContainerExercise', 'dropZoneContainerExercise', 'dropZoneAndButtonContainerCreation',
+            'imageContainerWrapperExercise', 'imageDisplayAreaExercise', 'exerciseTextInputContainer',
+            'addNewQuizInput', 'selectionRectangle', 'messageArea', 'globalHeaderInfo',
+            'prevProblemButton', 'nextProblemButton', 'prevProblemCreationButton', 'nextProblemCreationButton',
+            'problemCounter', 'problemCounterCreation', 'zoomSlider', 'zoomValue',
+            'problemManagementTitle', 'currentCreatingQuizTitle', 'currentExerciseQuizTitle',
+            'retryProblemButton', 'problemActionModal', 'modalProblemTitle', 'targetQuizBookSelect',
+            'moveProblemButton', 'importFromJsonInput', 'toggleMobileModeButton' // スマホモード切替ボタン
+        ];
+        elementIds.forEach(id => {
+            elements[id] = document.getElementById(id);
+        });
+        return elements;
+    })();
+
+    // --- 3. Database Manager (変更なし) ---
+    const DBManager = {
+        async initDB() {
+            db = await idb.openDB(DB_NAME, DB_VERSION, {
+                upgrade(db) {
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                },
+            });
+            console.log("Database initialized.");
+        },
+        async loadAllQuizBooks() {
+            AppState.masterQuizList = await db.getAll(STORE_NAME);
+            AppState.isDataLoaded = true;
+            AppState.clearCache();
+            DOM.loadingOverlay.classList.add('mode-hidden');
+            console.log("📚 Data loaded from IndexedDB.");
+        },
+        async addQuizBook(book) {
+            const cleanBook = JSON.parse(JSON.stringify(book));
+            await db.add(STORE_NAME, cleanBook);
+            AppState.clearCache();
+        },
+        async updateQuizBook(book) {
+            const cleanBook = JSON.parse(JSON.stringify(book));
+            await db.put(STORE_NAME, cleanBook);
+            AppState.clearCache();
+        },
+        async deleteQuizBook(bookId) {
+            await db.delete(STORE_NAME, bookId);
+            AppState.clearCache();
+        },
+        async importFromFile(file) {
+            if (!file) return;
+            const text = await file.text();
+            try {
+                const data = JSON.parse(text);
+                const booksToImport = Array.isArray(data) ? data : [data];
+                
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                await Promise.all(booksToImport.map(book => {
+                    if (!book.id) book.id = Utils.generateId();
+                    if (!book.quizzes) book.quizzes = [];
+                    const cleanBook = JSON.parse(JSON.stringify(book));
+                    return tx.store.put(cleanBook);
+                }));
+                await tx.done;
+
+                await this.loadAllQuizBooks();
+                UIManager.switchToMode('quizBookSelection');
+                Utils.updateMessage(`${booksToImport.length}件の問題集をインポートしました。`, "success");
+            } catch (error) {
+                console.error("Import failed:", error);
+                Utils.updateMessage("ファイルのインポートに失敗しました。形式が正しくない可能性があります。", "error");
+            }
+        }
+    };
+    
+    // --- 4. Utility Functions (変更なし) ---
+    const Utils = {
+        generateId: () => `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        
+        updateMessage(text, type = 'info') {
+            if (!DOM.messageArea) return;
+            const typeClasses = { 
+                success: 'bg-green-100 border border-green-300 text-green-700', 
+                error: 'bg-red-100 border border-red-300 text-red-700', 
+                info: 'bg-blue-100 border border-blue-300 text-blue-700' 
+            };
+            DOM.messageArea.textContent = text;
+            DOM.messageArea.className = `mt-6 font-medium p-3 rounded-lg shadow-sm text-center ${typeClasses[type] || typeClasses.info}`;
+        },
+        
+        blobToDataURL(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        },
+        
+        downloadJSON(data, filename) {
+            const dataToExport = JSON.parse(JSON.stringify(data));
+            const cleanup = (quizObj) => {
+                delete quizObj.originalImage;
+                delete quizObj.grayscaleImage;
+            };
+
+            if (Array.isArray(dataToExport)) {
+                dataToExport.forEach(book => book.quizzes?.forEach(cleanup));
+            } else if (dataToExport.quizzes) {
+                dataToExport.quizzes.forEach(cleanup);
+            } else if (dataToExport.originalImageData) {
+                cleanup(dataToExport);
+            }
+
+            const jsonStr = JSON.stringify(dataToExport, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+        
+        normalizeNumbers(str) {
+            return str ? str.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)) : '';
+        },
+        // ★追加：比較用に表記ゆれを吸収する
+        normalizeForCompare(str) {
+            if (str === null || str === undefined) return '';
+            let s = String(str);
+            try { s = s.normalize('NFKC'); } catch (e) {}
+            s = s.toLowerCase();
+            // カタカナ → ひらがな
+            s = s.replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+            // 先頭の口ぐせを除去
+            s = s.replace(/^(えーと|えっと|ええと|あのー|たぶん|多分|たしか|確か|こたえは|答えは)+/g, '');
+            // 末尾の言い回しを除去
+            s = s.replace(/(です|でーす|ですね|だと思います|かなあ|かな)+$/g, '');
+            // 記号・空白・長音などを除去
+            s = s.replace(/[\s\u3000ー－―‐・、。，．,.\-_!！?？"'「」『』（）()\[\]【】:：;；]/g, '');
+            return s;
+        },
+
+        // ★追加：2つの文字列の編集距離
+        levenshtein(a, b) {
+            if (a === b) return 0;
+            if (!a.length) return b.length;
+            if (!b.length) return a.length;
+            let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+            for (let i = 1; i <= a.length; i++) {
+                const cur = [i];
+                for (let j = 1; j <= b.length; j++) {
+                    cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+                }
+                prev = cur;
+            }
+            return prev[b.length];
+        },
+
+        // ★追加：あいまい一致（tolerance を上げるほどゆるくなる）
+        looseMatch(input, maskText, tolerance = 0.25) {
+            const a = this.normalizeForCompare(input);
+            if (!a) return false;
+            return String(maskText || '').split(/[、,／/｜|]/).some(part => {
+                const b = this.normalizeForCompare(part);
+                if (!b) return false;
+                if (a === b) return true;
+                if (b.length >= 2 && a.includes(b)) return true;   // 余計な語がついても可
+                const dist = this.levenshtein(a, b);
+                if (b.length <= 2) return false;                   // 短い語は誤爆防止で厳密に
+                if (b.length <= 5) return dist <= 1;               // 1文字違いまで許容
+                return dist / Math.max(a.length, b.length) <= tolerance;
+            });
+        },
+
+
+        createConfettiEffect(container, options = {}) {
+            const { count = 80, colors = ['#ff6b9d', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'], duration = 4000 } = options;
+            for (let i = 0; i < count; i++) {
+                const confetti = document.createElement('div');
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                const size = Math.random() * 12 + 6;
+                confetti.style.cssText = `position: absolute; left: ${Math.random() * 100}%; top: -20px; width: ${size}px; height: ${size * 0.6}px; background: ${color}; border-radius: 2px; pointer-events: none; z-index: 10000; transform: rotate(${Math.random() * 360}deg); animation: confettiFall ${duration}ms ease-out forwards; animation-delay: ${Math.random() * 1500}ms;`;
+                container.appendChild(confetti);
+                setTimeout(() => confetti.remove(), duration + 2500);
+            }
+        },
+
+        createSparkleEffect(container, options = {}) {
+            const { count = 30, colors = ['#ffd700', '#ffed4e', '#fff200'], duration = 3000 } = options;
+            for (let i = 0; i < count; i++) {
+                const sparkle = document.createElement('div');
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                sparkle.textContent = '✨';
+                sparkle.style.cssText = `position: absolute; left: ${Math.random() * 100}%; top: ${Math.random() * 100}%; font-size: ${Math.random() * 16 + 8}px; color: ${color}; pointer-events: none; z-index: 10001; filter: drop-shadow(0 0 6px ${color}); animation: sparkleFloat ${duration}ms ease-in-out infinite; animation-delay: ${Math.random() * 2000}ms;`;
+                container.appendChild(sparkle);
+                setTimeout(() => sparkle.remove(), duration + 2000);
+            }
+        }
+    };
+
+    // --- 5. UI Manager (スマホモード対応) ---
+    const UIManager = {
+        switchToMode(mode, options = {}) {
+            if (!AppState.isDataLoaded) { 
+                setTimeout(() => this.switchToMode(mode, options), 100); 
+                return; 
+            }
+
+            if (AppState.currentMode === 'exercise' && mode !== 'exercise') SpeechManager.stop();
+
+            AppState.currentMode = mode;
+            document.querySelectorAll('.mode-container').forEach(div => div.classList.add('mode-hidden'));
+            
+            let currentBookName = AppState.getCurrentQuizBook()?.name || '';
+            const exerciseTitle = AppState.isMobileMode ? '（タップ操作）' : '（ドラッグ＆ドロップまたはテキスト入力）';
+
+            const modeActions = {
+                menu: () => {
+                    DOM.menuModeDiv.classList.remove('mode-hidden');
+                    Utils.updateMessage('メニューから操作を選択してください。');
+                    currentBookName = '';
+                },
+                quizBookSelection: () => {
+                    DOM.quizBookSelectionModeDiv.classList.remove('mode-hidden');
+                    this.refreshQuizBookList();
+                    Utils.updateMessage('問題集を選択または作成してください。');
+                    currentBookName = '';
+                },
+                problemManagement: () => {
+                    DOM.problemManagementModeDiv.classList.remove('mode-hidden');
+                    this.refreshProblemList();
+                    Utils.updateMessage('問題を管理してください。');
+                },
+                creation: () => {
+                    DOM.creationModeDiv.classList.remove('mode-hidden');
+                    const book = AppState.getCurrentQuizBook();
+                    const quizIndex = book?.quizzes.findIndex(q => q.id === options.quizId);
+                    if (book && quizIndex > -1) {
+                        AppState.currentProblemIndexCreation = quizIndex;
+                        CanvasManager.loadImageFromQuizData(book.quizzes[quizIndex], DOM.imageCanvas);
+                    } else {
+                        this.switchToMode('problemManagement');
+                        return;
+                    }
+                    Utils.updateMessage('画像上でマスキングする範囲をドラッグしてください。', 'success');
+                },
+                exercise: () => {
+                    DOM.exerciseModeDiv.classList.remove('mode-hidden');
+                    if (options.problems) ExerciseModeManager.startExerciseMode(options.problems);
+                    Utils.updateMessage(`演習を開始してください。${exerciseTitle}`, 'success');
+                }
+            };
+            
+            modeActions[mode]?.();
+            DOM.globalHeaderInfo.textContent = currentBookName;
+        },
+
+        refreshQuizBookList() {
+            const container = DOM.quizBookSelectionContainer;
+            if (!container) return;
+            container.innerHTML = '';
+            if (AppState.masterQuizList.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center">作成された問題集はありません。</p>';
+                return;
+            }
+            const fragment = document.createDocumentFragment();
+            [...AppState.masterQuizList].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).forEach(quizBook => {
+                const problemCount = quizBook.quizzes?.reduce((total, quiz) => total + (quiz.problemData?.length || 0), 0) || 0;
+                fragment.appendChild(this.createQuizBookElement(quizBook, problemCount));
+            });
+            container.appendChild(fragment);
+        },
+
+        createQuizBookElement(quizBook, problemCount) {
+            const el = document.createElement('div');
+            el.className = 'quiz-book-item border border-gray-200 p-4 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow';
+            el.innerHTML = `<div class="flex justify-between items-center"><div><h3 class="text-lg font-semibold text-gray-800">${quizBook.name}</h3><p class="text-sm text-gray-600">問題数: ${quizBook.quizzes?.length || 0} / マスク数: ${problemCount}</p><p class="text-xs text-gray-500">作成日: ${new Date(quizBook.createdAt).toLocaleDateString()}</p></div><div class="space-x-2"><button class="px-3 py-1 bg-teal-500 text-white rounded hover:bg-teal-600 text-sm" data-action="export-book" data-book-id="${quizBook.id}">エクスポート</button><button class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm" data-action="select-book" data-book-id="${quizBook.id}">選択</button><button class="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm" data-action="rename-book" data-book-id="${quizBook.id}">名前変更</button><button class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm" data-action="delete-book" data-book-id="${quizBook.id}">削除</button></div></div>`;
+            return el;
+        },
+
+        refreshProblemList() {
+            const container = DOM.problemListContainerTop;
+            const quizBook = AppState.getCurrentQuizBook();
+            if (!container || !quizBook) {
+                if(container) container.innerHTML = '<p class="text-gray-500 text-center">問題集が見つかりません。</p>';
+                return;
+            }
+            DOM.problemManagementTitle.textContent = `問題管理: ${quizBook.name}`;
+            container.innerHTML = '';
+            const quizzes = quizBook.quizzes || [];
+            if (quizzes.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center">問題がありません。「新しい問題を追加」から画像を追加してください。</p>';
+                return;
+            }
+            const fragment = document.createDocumentFragment();
+            quizzes.forEach(quiz => fragment.appendChild(this.createProblemElement(quiz)));
+            container.appendChild(fragment);
+        },
+
+        createProblemElement(quiz) {
+            const el = document.createElement('div');
+            el.className = 'problem-item border border-gray-200 p-3 rounded bg-white hover:bg-gray-50 transition-colors flex items-center';
+            el.dataset.quizId = quiz.id;
+            el.innerHTML = `<div class="flex items-center flex-grow mr-4"><input type="checkbox" class="problem-select-cb h-5 w-5 mr-4 flex-shrink-0 text-blue-600" data-quiz-id="${quiz.id}" id="cb-${quiz.id}"><label for="cb-${quiz.id}" class="flex-grow cursor-pointer"><h4 class="font-medium text-gray-800">${quiz.title}</h4><p class="text-sm text-gray-600">マスク数: ${quiz.problemData?.length || 0}</p></label></div><div class="space-x-1 flex-shrink-0 ml-auto"><button class="px-2 py-1 bg-teal-500 text-white rounded hover:bg-teal-600 text-xs" data-action="export-problem">エクスポート</button><button class="px-2 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 text-xs" data-action="open-problem-action-modal">操作...</button><button class="px-2 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-xs" data-action="rename-problem">名前変更</button><button class="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs" data-action="exercise-problem">演習</button><button class="px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 text-xs" data-action="edit-problem">編集</button><button class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs" data-action="delete-problem">削除</button></div>`;
+            return el;
+        },
+
+        initializeGroupButtons() {
+            const container = document.getElementById('groupSetterButtons');
+            if (!container) return;
+            container.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].forEach(group => {
+                const btn = document.createElement('button');
+                btn.className = 'group-setter-btn px-2 py-1 text-xs rounded border w-7 h-7 flex items-center justify-center font-mono';
+                btn.textContent = group;
+                btn.dataset.action = 'set-group';
+                btn.dataset.groupId = group;
+                fragment.appendChild(btn);
+            });
+            container.appendChild(fragment);
+        },
+
+        toggleProblemActionModal(show, quizId = null) {
+            if (show && quizId) {
+                const sourceBook = AppState.getCurrentQuizBook();
+                const quiz = sourceBook.quizzes.find(q => q.id === quizId);
+                if (!quiz) return;
+                
+                AppState.isModalOpen = true;
+                AppState.problemToAction = { sourceBookId: sourceBook.id, quizId: quiz.id };
+                DOM.modalProblemTitle.textContent = `問題「${quiz.title}」を操作します。`;
+                
+                DOM.targetQuizBookSelect.innerHTML = '';
+                AppState.masterQuizList.forEach(book => {
+                    const option = document.createElement('option');
+                    option.value = book.id;
+                    option.textContent = book.name;
+                    DOM.targetQuizBookSelect.appendChild(option);
+                });
+                
+                DOM.moveProblemButton.disabled = AppState.masterQuizList.length <= 1;
+                DOM.problemActionModal.classList.remove('mode-hidden');
+            } else {
+                AppState.isModalOpen = false;
+                DOM.problemActionModal.classList.add('mode-hidden');
+            }
+        },
+
+        updateCreationNavigation() {
+            const quizBook = AppState.getCurrentQuizBook();
+            const quizzes = quizBook?.quizzes || [];
+            if (!DOM.problemCounterCreation || quizzes.length === 0) {
+                if(DOM.problemCounterCreation) DOM.problemCounterCreation.textContent = '0 / 0';
+                if(DOM.currentCreatingQuizTitle) DOM.currentCreatingQuizTitle.textContent = '問題がありません';
+                DOM.prevProblemCreationButton.disabled = true;
+                DOM.nextProblemCreationButton.disabled = true;
+                return;
+            }
+            DOM.problemCounterCreation.textContent = `${AppState.currentProblemIndexCreation + 1} / ${quizzes.length}`;
+            const currentQuiz = quizzes[AppState.currentProblemIndexCreation];
+            DOM.currentCreatingQuizTitle.textContent = currentQuiz ? `編集中: ${currentQuiz.title}` : '問題を選択してください';
+            DOM.prevProblemCreationButton.disabled = AppState.currentProblemIndexCreation === 0;
+            DOM.nextProblemCreationButton.disabled = AppState.currentProblemIndexCreation >= quizzes.length - 1;
+        },
+
+        updateExerciseNavigation() {
+            if (!DOM.problemCounter) return;
+            const total = AppState.exerciseData.length;
+            const current = AppState.currentProblemIndexExercise + 1;
+            DOM.problemCounter.textContent = `${current} / ${total}`;
+            const currentQuiz = AppState.getCurrentExerciseQuiz();
+            DOM.currentExerciseQuizTitle.textContent = currentQuiz.title;
+            DOM.prevProblemButton.disabled = AppState.currentProblemIndexExercise === 0;
+            DOM.nextProblemButton.disabled = AppState.currentProblemIndexExercise >= total - 1;
+        },
+
+        showAnimation(maskId, type) {
+            const dropZone = DOM.dropZoneContainerExercise.querySelector(`[data-mask-id="${maskId}"]`);
+            if (!dropZone) return;
+            const animElement = document.createElement('div');
+            animElement.textContent = type === 'correct' ? '○' : '×';
+            animElement.className = type === 'correct' ? 'correct-o-animation' : 'incorrect-x-animation';
+            dropZone.appendChild(animElement);
+            setTimeout(() => animElement.remove(), type === 'correct' ? 1000 : 1200);
+        },
+
+        showSpectacularClearAnimation(isAllComplete = false) {
+            const existingOverlay = document.getElementById('clearAnimationOverlay');
+            if (existingOverlay) existingOverlay.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'clearAnimationOverlay';
+            overlay.style.cssText = `position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; pointer-events: auto; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(3px); cursor: pointer;`;
+            
+            const removeOverlay = () => {
+                if (overlay.parentNode) {
+                    overlay.style.opacity = '0';
+                    overlay.style.transition = 'opacity 0.5s ease-out';
+                    setTimeout(() => overlay.remove(), 500);
+                }
+                document.removeEventListener('keydown', removeOverlay);
+            };
+            overlay.addEventListener('click', removeOverlay);
+            document.addEventListener('keydown', removeOverlay);
+
+            if (isAllComplete) {
+                overlay.innerHTML = `<div class="all-complete-spectacular text-center p-12 relative overflow-hidden bg-white rounded-3xl shadow-2xl max-w-2xl mx-4"><div class="trophy-bounce text-9xl mb-6 filter drop-shadow-lg">🏆</div><div class="text-6xl font-bold mb-4 bg-gradient-to-r from-yellow-400 via-red-500 to-pink-500 bg-clip-text text-transparent animate-pulse">PERFECT CLEAR!</div><div class="text-3xl font-bold text-purple-600 mb-4 animate-bounce">🎉 ALL COMPLETE! 🎉</div><div class="text-xl text-gray-700">全ての問題を完了しました！<br><span class="text-yellow-600 font-bold text-2xl">CONGRATULATIONS!</span></div></div>`;
+                Utils.updateMessage('🏆✨ PERFECT! 全ての問題を完全制覇しました！ ✨🏆', 'success');
+                setTimeout(() => {
+                    Utils.createConfettiEffect(overlay, { count: 150, duration: 6000 });
+                    Utils.createSparkleEffect(overlay, { count: 50, duration: 5000 });
+                }, 500);
+            } else {
+                const currentProblem = AppState.currentProblemIndexExercise + 1;
+                const totalProblems = AppState.exerciseData.length;
+                overlay.innerHTML = `<div class="problem-clear-spectacular text-center p-10 relative bg-white rounded-2xl shadow-xl max-w-xl mx-4"><div class="clear-burst text-8xl mb-6">🎯</div><div class="text-4xl font-bold text-green-600 mb-4 clear-text-glow">✨ STAGE CLEAR! ✨</div><div class="text-2xl text-purple-600 font-bold mb-6">🎊 問題クリア! 🎊</div><div class="text-lg text-gray-700">「前の問題」「次の問題」ボタンで移動してください</div><div class="progress-celebration mt-4 text-yellow-500 text-3xl">🌟 進捗: ${Math.round((currentProblem / totalProblems) * 100)}% 🌟</div></div>`;
+                Utils.updateMessage('🎯 STAGE CLEAR! 次の問題へ進んでください。', 'success');
+                setTimeout(() => {
+                    Utils.createConfettiEffect(overlay, { count: 80, duration: 4000 });
+                    Utils.createSparkleEffect(overlay, { count: 25, duration: 3500 });
+                }, 300);
+            }
+
+            document.body.appendChild(overlay);
+            setTimeout(removeOverlay, 15000);
+
+            const container = DOM.optionsContainerExercise;
+            if (container) {
+                container.innerHTML = `<div class="text-center p-6 bg-gradient-to-r from-${isAllComplete ? 'purple' : 'green'}-100 to-${isAllComplete ? 'pink' : 'blue'}-100 rounded-lg"><div class="text-3xl mb-2">${isAllComplete ? '🏆' : '🎯'}</div><div class="text-lg font-bold text-${isAllComplete ? 'purple' : 'green'}-600">${isAllComplete ? '全問題完了！' : 'ステージクリア！'}</div></div>`;
+            }
+        }
+    };
+    
+    // --- 6. Canvas & Image Management (リファクタリング) ---
+    const CanvasManager = {
+        imageCache: new WeakMap(),
+
+        async handleNewBookCreation() {
+            const name = prompt("新しい問題集の名前を入力してください:", `問題集_${new Date().toLocaleDateString()}`);
+            if (!name?.trim()) return Utils.updateMessage('問題集の作成がキャンセルされました。', 'info');
+            
+            try {
+                const newBook = { id: Utils.generateId(), name: name.trim(), createdAt: Date.now(), quizzes: [] };
+                await DBManager.addQuizBook(newBook);
+                await DBManager.loadAllQuizBooks();
+                AppState.currentQuizBookId = newBook.id;
+                UIManager.switchToMode('problemManagement');
+                Utils.updateMessage(`問題集「${newBook.name}」を作成しました。`, 'success');
+            } catch (e) {
+                Utils.updateMessage("問題集の作成に失敗しました。", "error");
+            }
+        },
+
+        async handleImageUpload(file) {
+            const quizBook = AppState.getCurrentQuizBook();
+            if (!quizBook) {
+                UIManager.switchToMode('quizBookSelection');
+                return Utils.updateMessage('問題を追加する問題集が選択されていません。', 'error');
+            }
+            Utils.updateMessage('画像を処理しています...', 'info');
+            try {
+                const imageDataURL = await Utils.blobToDataURL(file);
+                const quiz = { id: Utils.generateId(), title: file.name.replace(/\.[^/.]+$/, ""), originalImageData: imageDataURL, problemData: [] };
+                quizBook.quizzes = [...(quizBook.quizzes || []), quiz];
+                await DBManager.updateQuizBook(quizBook);
+                await DBManager.loadAllQuizBooks();
+                UIManager.switchToMode('creation', { quizId: quiz.id });
+            } catch (e) {
+                Utils.updateMessage('画像の処理に失敗しました。', 'error');
+            }
+        },
+
+        loadImageFromQuizData(quizData, canvas) {
+            if (!quizData?.originalImageData) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                return;
+            }
+            if (this.imageCache.has(quizData) && quizData.originalImage?.complete) {
+                return this.setupCanvas(quizData.originalImage, canvas);
+            }
+            const image = new Image();
+            image.onload = () => {
+                quizData.originalImage = image;
+                this.imageCache.set(quizData, image);
+                this.setupCanvas(image, canvas);
+            };
+            image.src = quizData.originalImageData;
+        },
+
+        setupCanvas(image, canvas) {
+            if (!canvas) return;
+            requestAnimationFrame(() => {
+                const container = canvas.closest('#imageContainerWrapperCreation, #imageContainerWrapperExercise');
+                if (!container || container.clientWidth === 0) return this.setupCanvas(image, canvas);
+                
+                const ar = image.width / image.height;
+                let w = container.clientWidth - 32;
+                let h = w / ar;
+                if (h > container.clientHeight - 32) {
+                    h = container.clientHeight - 32;
+                    w = h * ar;
+                }
+                const scale = 1.5;
+                canvas.width = Math.floor(w * scale);
+                canvas.height = Math.floor(h * scale);
+                canvas.style.width = `${w}px`;
+                canvas.style.height = `${h}px`;
+
+                this.redrawCanvas(canvas);
+                
+                if (canvas.id === 'imageCanvasExercise') {
+                    ExerciseModeManager.setupDropZones();
+                    ExerciseModeManager.setupExerciseOptions();
+                } else {
+                    CreationModeManager.updateMaskList();
+                    UIManager.updateCreationNavigation();
+                }
+            });
+        },
+
+        redrawCanvas(canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const currentQuiz = canvas.id === 'imageCanvas' ? AppState.getCurrentCreationQuiz() : AppState.getCurrentExerciseQuiz();
+            if (!currentQuiz?.originalImage) return;
+
+            let imageToDraw = currentQuiz.originalImage;
+            if (canvas.id === 'imageCanvasExercise') {
+                if (currentQuiz.grayscaleImage?.complete) {
+                    imageToDraw = currentQuiz.grayscaleImage;
+                } else if (!currentQuiz.grayscaleImage) {
+                    this.createGrayscaleImage(currentQuiz);
+                }
+            }
+            ctx.drawImage(imageToDraw, 0, 0, canvas.width, canvas.height);
+            if (canvas.id === 'imageCanvas') DOM.dropZoneAndButtonContainerCreation.innerHTML = '';
+            this.drawMasks(currentQuiz, canvas, ctx);
+        },
+
+        createGrayscaleImage(quiz) {
+            const offscreenCanvas = document.createElement('canvas');
+            const ctx = offscreenCanvas.getContext('2d');
+            offscreenCanvas.width = quiz.originalImage.naturalWidth;
+            offscreenCanvas.height = quiz.originalImage.naturalHeight;
+            ctx.drawImage(quiz.originalImage, 0, 0);
+            const imageData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const avg = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                data[i] = data[i + 1] = data[i + 2] = avg;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleImage = new Image();
+            grayscaleImage.onload = () => this.redrawCanvas(DOM.imageCanvasExercise);
+            grayscaleImage.src = offscreenCanvas.toDataURL();
+            quiz.grayscaleImage = grayscaleImage;
+        },
+
+        drawMasks(quiz, canvas, ctx) {
+            const displayRect = canvas.getBoundingClientRect();
+            quiz.problemData?.forEach(mask => {
+                if (canvas.id === 'imageCanvasExercise') {
+                    const shouldShow = AppState.isFirstRound ? !mask.isAnswered : !mask.isAnswered && (mask.trainingPoints || 0) > 0;
+                    if (!shouldShow) return;
+                }
+                const { x, y, width, height } = mask.rect;
+                ctx.fillStyle = canvas.id === 'imageCanvasExercise' ? '#495057' : 'rgba(108, 117, 125, 0.75)';
+                ctx.fillRect(x * canvas.width, y * canvas.height, width * canvas.width, height * canvas.height);
+
+                if (canvas.id === 'imageCanvas') this.createDeleteButton(mask, displayRect);
+            });
+        },
+
+        createDeleteButton(mask, displayRect) {
+            const btn = document.createElement('button');
+            btn.textContent = '×';
+            btn.className = 'absolute bg-red-600 text-white font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px] opacity-70 hover:opacity-100 pointer-events-auto';
+            btn.style.left = `${mask.rect.x * displayRect.width + mask.rect.width * displayRect.width - 16}px`;
+            btn.style.top = `${mask.rect.y * displayRect.height}px`;
+            btn.dataset.action = "delete-mask-on-canvas";
+            btn.dataset.maskId = mask.id;
+            DOM.dropZoneAndButtonContainerCreation.appendChild(btn);
+        }
+    };
+    
+    // --- 7. Creation Mode Manager (リファクタリング) ---
+    const CreationModeManager = {
+        handleMouseDown(event) {
+            if (AppState.currentMode !== 'creation') return;
+            const rect = DOM.imageCanvas.getBoundingClientRect();
+            AppState.isSelecting = true;
+            AppState.currentSelectionRect = { x: event.clientX - rect.left, y: event.clientY - rect.top, width: 0, height: 0 };
+            DOM.selectionRectangle.style.display = 'block';
+        },
+        handleMouseMove(event) {
+            if (!AppState.isSelecting) return;
+            const rect = DOM.imageCanvas.getBoundingClientRect();
+            const selRect = AppState.currentSelectionRect;
+            selRect.width = (event.clientX - rect.left) - selRect.x;
+            selRect.height = (event.clientY - rect.top) - selRect.y;
+            const norm = { x: selRect.width > 0 ? selRect.x : selRect.x + selRect.width, y: selRect.height > 0 ? selRect.y : selRect.y + selRect.height, width: Math.abs(selRect.width), height: Math.abs(selRect.height) };
+            Object.assign(DOM.selectionRectangle.style, { left: `${norm.x}px`, top: `${norm.y}px`, width: `${norm.width}px`, height: `${norm.height}px` });
+        },
+        handleMouseUp() {
+            if (!AppState.isSelecting) return;
+            AppState.isSelecting = false;
+            const rect = AppState.currentSelectionRect;
+            if (rect && Math.abs(rect.width) > 5 && Math.abs(rect.height) > 5) this.createMask();
+            DOM.selectionRectangle.style.display = 'none';
+            AppState.currentSelectionRect = null;
+        },
+        async createMask() {
+            const maskText = prompt("このマスク部分のテキストを入力してください：", "");
+            if (maskText === null) return;
+            
+            const quizBook = AppState.getCurrentQuizBook();
+            let quiz = AppState.getCurrentCreationQuiz();
+            if (!quiz?.originalImage) return;
+            
+            const rect = AppState.currentSelectionRect;
+            const canvasRect = DOM.imageCanvas.getBoundingClientRect();
+            const relRect = { x: (rect.width > 0 ? rect.x : rect.x + rect.width) / canvasRect.width, y: (rect.height > 0 ? rect.y : rect.y + rect.height) / canvasRect.height, width: Math.abs(rect.width) / canvasRect.width, height: Math.abs(rect.height) / canvasRect.height };
+            
+            const maskData = { id: Utils.generateId(), rect: relRect, text: maskText.trim(), imageData: this.extractMaskImage(quiz.originalImage, relRect), importance: '☆', groupId: null, history: [], trainingPoints: 0 };
+            
+            quiz.problemData = [...(quiz.problemData || []), maskData];
+            await DBManager.updateQuizBook(quizBook);
+            CanvasManager.redrawCanvas(DOM.imageCanvas);
+            this.updateMaskList();
+            UIManager.updateCreationNavigation();
+        },
+        extractMaskImage(originalImage, relRect) {
+            const canvas = document.createElement('canvas');
+            const w = relRect.width * originalImage.width;
+            const h = relRect.height * originalImage.height;
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(originalImage, relRect.x * originalImage.width, relRect.y * originalImage.height, w, h, 0, 0, w, h);
+            return canvas.toDataURL('image/jpeg', 0.85);
+        },
+        async deleteMask(maskId) {
+            if (!confirm('このマスクを削除しますか？')) return;
+            const quizBook = AppState.getCurrentQuizBook();
+            let quiz = AppState.getCurrentCreationQuiz();
+            if (quiz?.problemData) {
+                quiz.problemData = quiz.problemData.filter(m => m.id !== maskId);
+                await DBManager.updateQuizBook(quizBook);
+                CanvasManager.redrawCanvas(DOM.imageCanvas);
+                this.updateMaskList();
+                UIManager.updateCreationNavigation();
+                Utils.updateMessage('マスクを削除しました。', 'success');
+            }
+        },
+        updateMaskList() {
+            const container = DOM.optionsContainerCreation;
+            const quiz = AppState.getCurrentCreationQuiz();
+            if (!container) return;
+            container.innerHTML = '';
+            if (!quiz?.problemData?.length) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center">ここにマスキングした部分が表示されます</p>';
+                return;
+            }
+            const fragment = document.createDocumentFragment();
+            quiz.problemData.forEach(mask => fragment.appendChild(this.createMaskElement(mask)));
+            container.appendChild(fragment);
+        },
+        createMaskElement(mask) {
+            const el = document.createElement('div');
+            el.className = 'option-item-wrapper bg-blue-50 p-2 rounded border border-blue-200 relative cursor-pointer hover:bg-blue-100 transition-colors flex flex-col items-center w-full';
+            el.dataset.maskId = mask.id;
+            const historyStr = (mask.history || []).join('') || 'なし';
+            const points = mask.trainingPoints || 0;
+            const pointsColor = points > 0 ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800';
+            el.innerHTML = `<div class="flex items-center w-full"><div class="flex-shrink-0"><img src="${mask.imageData}" alt="マスク画像" class="mb-2 border border-gray-400 rounded max-w-[100px] max-h-[50px] object-contain"></div><div class="flex-grow text-left ml-4"><div class="font-semibold text-sm break-all">${mask.text || '(テキストなし)'}</div><div class="text-xs text-gray-600">重要度: <span class="font-bold text-yellow-600">${mask.importance || '☆'}</span></div>${mask.groupId ? `<div class="text-xs text-green-700 font-semibold">グループ: ${mask.groupId}</div>` : ''}<div class="text-xs text-gray-500 mt-1">履歴: <span class="history-display">${historyStr}</span></div><div class="text-xs text-gray-500 mt-1">鍛錬P: <span class="training-points-display ${pointsColor}">${points}</span></div></div></div><button class="delete-mask-btn absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600" data-action="delete-mask" data-mask-id="${mask.id}">×</button>`;
+            return el;
+        }
+    };
+
+    // --- 8. Exercise Mode Manager (スマホモード対応 & 大幅リファクタリング) ---
+    const ExerciseModeManager = {
+        startExerciseMode(problemList) {
+            AppState.originalExerciseProblems = JSON.parse(JSON.stringify(problemList));
+            AppState.exerciseData = JSON.parse(JSON.stringify(problemList));
+            AppState.currentProblemIndexExercise = 0; 
+            AppState.exerciseRound = 1;
+            AppState.isFirstRound = true;
+            if (DOM.zoomSlider) {
+                DOM.zoomSlider.value = 1;
+                DOM.zoomValue.textContent = '1.0x';
+                DOM.imageDisplayAreaExercise.style.transform = 'scale(1)';
+            }
+            this.loadExerciseProblem();
+        },
+
+        loadExerciseProblem() {
+            AppState.shouldShuffleOptions = true; 
+            AppState.selectedMaskForMobile = null;
+            const currentQuiz = AppState.getCurrentExerciseQuiz();
+            if (!currentQuiz) return UIManager.switchToMode('problemManagement');
+            
+            UIManager.updateExerciseNavigation();
+            
+            const remainingTrainingPoints = currentQuiz.problemData.some(mask => (mask.trainingPoints || 0) > 0);
+            if (!AppState.isFirstRound && !remainingTrainingPoints) {
+                return UIManager.showSpectacularClearAnimation(false);
+            }
+            
+            currentQuiz.problemData.forEach(mask => mask.isAnswered = false);
+            this.initializeTextInputContainer(); // PCモード用のUIを初期化
+            CanvasManager.loadImageFromQuizData(currentQuiz, DOM.imageCanvasExercise);
+            this.updateTrainingPointsDisplay();
+        },
+
+        initializeTextInputContainer() {
+            if (!DOM.exerciseTextInputContainer || AppState.isMobileMode) {
+                if (DOM.exerciseTextInputContainer) DOM.exerciseTextInputContainer.innerHTML = '';
+                return;
+            }
+            DOM.exerciseTextInputContainer.innerHTML = `<div class="bg-gray-50 p-3 rounded-md border border-gray-200 mb-3" style="min-height: 110px;"><div class="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-500" style="height: 40px; display: flex; align-items: center;">💡 マスクをクリックしてテキスト入力</div></div>`;
+        },
+
+        setupExerciseOptions() {
+            const container = DOM.optionsContainerExercise;
+            const quiz = AppState.getCurrentExerciseQuiz();
+            if (!container || !quiz?.problemData) return;
+            container.innerHTML = '';
+            
+            let unansweredMasks = AppState.isFirstRound ? quiz.problemData.filter(m => !m.isAnswered) : quiz.problemData.filter(m => !m.isAnswered && (m.trainingPoints || 0) > 0);
+            if (unansweredMasks.length === 0) return this.handleNoOptionsAvailable(quiz);
+            
+            this.shuffleAndDisplayOptions(unansweredMasks, container);
+        },
+
+        handleNoOptionsAvailable(quiz) {
+            if (!AppState.isFirstRound && quiz.problemData.some(m => (m.trainingPoints || 0) > 0)) {
+                DOM.optionsContainerExercise.innerHTML = '<p class="text-blue-600 text-center font-semibold p-4">🔄 鍛錬継続中...</p>';
+            } else {
+                UIManager.showSpectacularClearAnimation(false);
+            }
+        },
+        
+        shuffleAndDisplayOptions(unansweredMasks, container) {
+            if (AppState.shouldShuffleOptions) {
+                unansweredMasks.sort(() => Math.random() - 0.5);
+                AppState.currentOptionOrder = unansweredMasks.map(mask => mask.id);
+                AppState.shouldShuffleOptions = false;
+            } else {
+                unansweredMasks.sort((a, b) => AppState.currentOptionOrder.indexOf(a.id) - AppState.currentOptionOrder.indexOf(b.id));
+            }
+            const fragment = document.createDocumentFragment();
+            unansweredMasks.forEach(mask => fragment.appendChild(this.createOptionElement(mask)));
+            container.appendChild(fragment);
+        },
+
+        createOptionElement(mask) {
+            const el = document.createElement('div');
+            el.className = 'option-item-wrapper bg-white border border-gray-300 p-2 rounded shadow-sm flex flex-col items-center';
+            el.draggable = !AppState.isMobileMode;
+            el.dataset.maskId = mask.id;
+            el.innerHTML = `<img src="${mask.imageData}" alt="選択肢画像" class="border border-gray-400 rounded object-contain pointer-events-none">`;
+
+            if (AppState.isMobileMode) {
+                el.addEventListener('click', () => this.handleOptionTap(mask.id, el));
+            } else {
+                el.addEventListener('dragstart', e => {
+                    e.dataTransfer.setData('text/plain', mask.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    el.style.opacity = '0.5';
+                });
+                el.addEventListener('dragend', () => el.style.opacity = '1');
+            }
+            return el;
+        },
+
+        setupDropZones() {
+            const container = DOM.dropZoneContainerExercise;
+            const quiz = AppState.getCurrentExerciseQuiz();
+            const canvas = DOM.imageCanvasExercise;
+            if (!container || !quiz?.problemData || !canvas?.width) return;
+            
+            container.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            const canvasRect = canvas.getBoundingClientRect();
+            
+            quiz.problemData.forEach(mask => {
+                const shouldCreate = AppState.isFirstRound ? !mask.isAnswered : !mask.isAnswered && (mask.trainingPoints || 0) > 0;
+                if (shouldCreate) fragment.appendChild(this.createDropZone(mask, canvasRect));
+            });
+            container.appendChild(fragment);
+            this.checkClearCondition(fragment.children.length, quiz);
+        },
+
+        createDropZone(mask, canvasRect) {
+            const el = document.createElement('div');
+            el.className = 'drop-zone-element';
+            el.dataset.maskId = mask.id;
+            Object.assign(el.style, { left: `${mask.rect.x * canvasRect.width}px`, top: `${mask.rect.y * canvasRect.height}px`, width: `${mask.rect.width * canvasRect.width}px`, height: `${mask.rect.height * canvasRect.height}px` });
+            
+            if (AppState.isMobileMode) {
+                el.addEventListener('click', () => this.handleMaskTap(mask.id, el));
+            } else {
+                el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
+                el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+                el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('drag-over'); this.checkAnswer(e.dataTransfer.getData('text/plain'), mask.id); });
+                el.addEventListener('click', e => { e.stopPropagation(); this.showTextInputForMask(mask.id, el); });
+            }
+            return el;
+        },
+
+        checkClearCondition(dropZoneCount, quiz) {
+            if (dropZoneCount === 0 && !AppState.isFirstRound && !quiz.problemData.some(m => (m.trainingPoints || 0) > 0)) {
+                setTimeout(() => UIManager.showSpectacularClearAnimation(false), 100);
+            }
+        },
+
+        updateTrainingPointsDisplay() {
+            const quiz = AppState.getCurrentExerciseQuiz();
+            if (!quiz?.problemData) return;
+            const totalPoints = quiz.problemData.reduce((sum, m) => sum + (m.trainingPoints || 0), 0);
+            const remainingMasks = quiz.problemData.filter(m => (m.trainingPoints || 0) > 0).length;
+            
+            if (AppState.isFirstRound) {
+                Utils.updateMessage(`問題 ${AppState.currentProblemIndexExercise + 1}/${AppState.exerciseData.length} - 一巡目`, 'info');
+            } else if (totalPoints > 0) {
+                Utils.updateMessage(`🔥 鍛錬モード - 鍛錬ポイント: ${totalPoints}点 (${remainingMasks}問が要復習)`, 'info');
+            } else {
+                Utils.updateMessage(`✅ この問題をクリアしました！`, 'success');
+            }
+        },
+
+        // --- スマホモード用タップ処理 ---
+        handleMaskTap(maskId, element) {
+            if (AppState.selectedMaskForMobile === maskId) { // 同じマスクを再度タップで選択解除
+                AppState.selectedMaskForMobile = null;
+                element.classList.remove('mobile-selected');
+                Utils.updateMessage('解答するマスクをタップしてください', 'info');
+                return;
+            }
+            AppState.selectedMaskForMobile = maskId;
+            document.querySelectorAll('.drop-zone-element.mobile-selected').forEach(el => el.classList.remove('mobile-selected'));
+            element.classList.add('mobile-selected');
+            Utils.updateMessage('対応する選択肢をタップしてください', 'info');
+        },
+        handleOptionTap(optionMaskId, element) {
+            if (!AppState.selectedMaskForMobile) {
+                Utils.updateMessage('先に解答したいマスク（画像上の四角）をタップしてください', 'error');
+                return;
+            }
+            this.checkAnswer(optionMaskId, AppState.selectedMaskForMobile);
+            AppState.selectedMaskForMobile = null;
+            const selectedZone = DOM.dropZoneContainerExercise.querySelector('.mobile-selected');
+            if(selectedZone) selectedZone.classList.remove('mobile-selected');
+        },
+        
+        showTextInputForMask(maskId, dropZoneElement) {
+            if (AppState.isMobileMode) return;
+            AppState.currentAnsweringMaskId = maskId;
+            const inputContainer = this.createTextInputContainer();
+            DOM.exerciseTextInputContainer.innerHTML = '';
+            DOM.exerciseTextInputContainer.appendChild(inputContainer);
+            this.setupTextInputEvents(inputContainer, maskId);
+            this.highlightMask(dropZoneElement);
+            setTimeout(() => inputContainer.querySelector('input')?.focus(), 100);
+        },
+
+        createTextInputContainer() {
+            const container = document.createElement('div');
+            container.className = 'bg-blue-50 p-3 rounded-md border-2 border-blue-300 mb-3';
+            container.innerHTML = `<input type="text" id="mask-text-input" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="テキストで解答..."><div class="flex justify-between items-center mt-2"><div class="flex space-x-2"><button id="submit-text-answer" class="px-4 py-2 bg-blue-500 text-white rounded-md text-sm">解答</button><button id="cancel-text-answer" class="px-4 py-2 bg-gray-500 text-white rounded-md text-sm">キャンセル</button></div><button id="mic-start-btn" class="mic-button px-3 py-2 bg-green-500 text-white rounded-md text-sm" title="音声入力">🎤</button></div>`;
+            return container;
+        },
+
+                setupTextInputEvents(container, maskId) {
+            const input = container.querySelector('input');
+            container.querySelector('#submit-text-answer').addEventListener('click', () => this.checkAnswer(input.value, maskId));
+            container.querySelector('#cancel-text-answer').addEventListener('click', () => this.cancelTextInput());
+            container.querySelector('#mic-start-btn').addEventListener('click', () => SpeechManager.toggle());
+            input.addEventListener('keypress', e => { if (e.key === 'Enter') this.checkAnswer(input.value, maskId); });
+            SpeechManager.updateMicButtonUI();
+        },
+
+
+        cancelTextInput() {
+            document.querySelector('.active-mask-highlight')?.classList.remove('active-mask-highlight');
+            AppState.currentAnsweringMaskId = null;
+            this.initializeTextInputContainer();
+        },
+
+        highlightMask(dropZoneElement) {
+            document.querySelector('.active-mask-highlight')?.classList.remove('active-mask-highlight');
+            dropZoneElement.classList.add('active-mask-highlight');
+        },
+
+                async checkAnswer(answer, targetMaskId) {
+            const quiz = AppState.getCurrentExerciseQuiz();
+            const targetMask = quiz.problemData.find(m => m.id === targetMaskId);
+            if (!targetMask || targetMask.isAnswered) return;
+
+            const quizBook = AppState.masterQuizList.find(b => b.quizzes.some(q => q.id === quiz.id));
+            const quizInDb = quizBook?.quizzes.find(q => q.id === quiz.id);
+
+            const { answerMask, isCorrect } = this.evaluateAnswer(answer, targetMask, quiz);
+
+            // ★追加：「パス」と言われたら不正解扱いにして答えを開示する
+            if (!isCorrect && this.isPassWord(answer)) {
+                return this.processPass(targetMask, quizBook, quizInDb, quiz);
+            }
+
+            await this.processAnswerResult(isCorrect, targetMask, answerMask, quizInDb, quiz);
+            setTimeout(() => this.updateScreenAfterAnswer(quiz), 300);
+        },
+
+        // ★追加：パスとみなす言葉（ここに単語を足せば増やせます）
+                PASS_WORDS: [
+            'パス', 'ぱす', 'バス', 'pass', 'スキップ', 'skip', 'とばす', '飛ばす',
+            'わからない', 'わかりません', 'わかんない', 'わからん',
+            '分からない', '分かりません', '判らない',
+            'しらない', 'しりません', '知らない', '知りません',
+            'こうさん', '降参', 'ギブアップ', 'ぎぶあっぷ', 'giveup',
+            'つぎ', '次', 'ヒント', 'むり', '無理', 'おてあげ', 'お手上げ'
+        ],
+
+        isPassWord(answer) {
+            const a = Utils.normalizeForCompare(answer);
+            if (!a || a.length > 12) return false;   // 長い発話はパス扱いしない
+            return this.PASS_WORDS.some(w => {
+                const b = Utils.normalizeForCompare(w);
+                if (!b) return false;
+                if (a === b) return true;
+                if (b.length >= 2 && a.includes(b)) return true;
+                return b.length >= 3 && Utils.levenshtein(a, b) <= 1;
+            });
+        },
+
+
+        // ★追加：パス時の処理（不正解と同じ扱い＋答えの表示）
+        async processPass(targetMask, quizBook, quizInDb, quiz) {
+            const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
+            if (dbMask) {
+                dbMask.history = [...(dbMask.history || []), '×'].slice(-10);
+                dbMask.trainingPoints = (dbMask.trainingPoints || 0) + 2;
+            }
+            targetMask.trainingPoints = dbMask?.trainingPoints || 0;
+            targetMask.isAnswered = true;
+
+            UIManager.showAnimation(targetMask.id, 'incorrect');
+            this.showPassReveal(targetMask);
+            Utils.updateMessage(`⏭️ パス → 正解は「${targetMask.text || '(テキストなし)'}」 鍛錬ポイント+2 (現在${targetMask.trainingPoints})`, 'error');
+
+            if (quizBook) await DBManager.updateQuizBook(quizBook);
+            this.clearTextInput();
+            setTimeout(() => this.updateScreenAfterAnswer(quiz), 1500);
+        },
+
+        // ★追加：マスクの位置に答えのラベルを一定時間表示する
+        showPassReveal(mask) {
+            const canvas = DOM.imageCanvasExercise;
+            const area = DOM.imageDisplayAreaExercise;
+            if (!canvas || !area) return;
+            const w = canvas.clientWidth;
+            const h = canvas.clientHeight;
+            const label = document.createElement('div');
+            label.textContent = `答: ${mask.text || '(テキストなし)'}`;
+            Object.assign(label.style, {
+                position: 'absolute',
+                left: `${mask.rect.x * w}px`,
+                top: `${mask.rect.y * h}px`,
+                minWidth: `${mask.rect.width * w}px`,
+                padding: '2px 6px',
+                background: 'rgba(220, 38, 38, 0.92)',
+                color: '#ffffff',
+                fontWeight: 'bold',
+                fontSize: '14px',
+                borderRadius: '4px',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                zIndex: '40'
+            });
+            area.appendChild(label);
+            setTimeout(() => label.remove(), 4000);
+        },
+
+
+                evaluateAnswer(answer, targetMask, quiz) {
+            const raw = String(answer || '').trim();
+
+            // ドラッグ＆ドロップ／タップ（マスクIDが渡される）は従来通り厳密判定
+            const byId = quiz.problemData.find(m => m.id === raw);
+            if (byId) {
+                const isCorrect = targetMask.groupId
+                    ? byId.groupId === targetMask.groupId
+                    : byId.id === targetMask.id;
+                return { answerMask: byId, isCorrect };
+            }
+
+            // テキスト／音声はあいまい一致
+            const TOLERANCE = 0.25;
+            const hit = (mask) => Utils.looseMatch(raw, mask.text, TOLERANCE);
+
+            if (hit(targetMask)) return { answerMask: targetMask, isCorrect: true };
+
+            if (targetMask.groupId) {
+                const groupMask = quiz.problemData.find(m => m.groupId === targetMask.groupId && hit(m));
+                if (groupMask) return { answerMask: groupMask, isCorrect: true };
+            }
+
+            const otherMask = quiz.problemData.find(m => hit(m));
+            return { answerMask: otherMask || null, isCorrect: false };
+        },
+
+
+        async processAnswerResult(isCorrect, targetMask, answerMask, quizInDb) {
+            const maskToUpdate = (targetMask.groupId && answerMask) ? answerMask : targetMask;
+            const dbMask = quizInDb?.problemData.find(m => m.id === maskToUpdate.id);
+
+            if (isCorrect) {
+                if (dbMask) {
+                    dbMask.history = [...(dbMask.history || []), '〇'].slice(-10);
+                    dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 1);
+                }
+                maskToUpdate.trainingPoints = dbMask?.trainingPoints || 0;
+                Utils.updateMessage(`✅ 正解！ 鍛錬ポイント-1 (残り${dbMask?.trainingPoints || 0})`, 'success');
+                UIManager.showAnimation(maskToUpdate.id, 'correct');
+                try { new Audio('sounds/correct.mp3').play().catch(()=>{}); } catch(e){}
+                maskToUpdate.isAnswered = true;
+                this.clearTextInput();
+            } else {
+                if (dbMask) {
+                    dbMask.history = [...(dbMask.history || []), '×'].slice(-10);
+                    dbMask.trainingPoints = (dbMask.trainingPoints || 0) + 2;
+                }
+                targetMask.trainingPoints = dbMask?.trainingPoints || 0;
+                Utils.updateMessage(`❌ 不正解！ 鍛錬ポイント+2 (現在${dbMask?.trainingPoints || 0})`, 'error');
+                UIManager.showAnimation(targetMask.id, 'incorrect');
+                this.clearTextInput(true); // shake
+            }
+            if (quizInDb) await DBManager.updateQuizBook(quizInDb.id === AppState.currentQuizBookId ? AppState.getCurrentQuizBook() : quizInDb);
+
+        },
+
+        clearTextInput(shake = false) {
+            if (AppState.currentAnsweringMaskId) {
+                AppState.currentAnsweringMaskId = null;
+                document.querySelector('.active-mask-highlight')?.classList.remove('active-mask-highlight');
+                if (shake) {
+                    const inputContainer = DOM.exerciseTextInputContainer.querySelector('.bg-blue-50');
+                    if(inputContainer) {
+                        inputContainer.classList.add('shake-animation');
+                        setTimeout(() => inputContainer.classList.remove('shake-animation'), 500);
+                    }
+                } else {
+                    this.initializeTextInputContainer();
+                }
+            }
+        },
+
+        updateScreenAfterAnswer(quiz) {
+            CanvasManager.redrawCanvas(DOM.imageCanvasExercise);
+            this.setupDropZones();
+            this.setupExerciseOptions();
+
+            if (quiz.problemData.every(m => m.isAnswered)) {
+                this.moveToNextProblemOrEndRound();
+            } else {
+                this.updateTrainingPointsDisplay();
+                if (!AppState.isMobileMode) {
+                    setTimeout(() => {
+                        const nextMask = quiz.problemData.find(m => !m.isAnswered);
+                        if(nextMask) DOM.dropZoneContainerExercise.querySelector(`[data-mask-id="${nextMask.id}"]`)?.click();
+                    }, 300);
+                }
+            }
+        },
+
+        moveToNextProblemOrEndRound() {
+            if (AppState.currentProblemIndexExercise < AppState.exerciseData.length - 1) {
+                AppState.currentProblemIndexExercise++;
+                this.loadExerciseProblem();
+            } else {
+                if (AppState.isFirstRound) {
+                    AppState.isFirstRound = false;
+                    AppState.exerciseRound = 2;
+                    AppState.currentProblemIndexExercise = 0;
+                    if (AppState.exerciseData.some(q => q.problemData.some(m => (m.trainingPoints || 0) > 0))) {
+                        Utils.updateMessage('一巡目完了！鍛錬モードに移行します。', 'info');
+                        this.loadExerciseProblem();
+                    } else {
+                        UIManager.showSpectacularClearAnimation(true);
+                    }
+                } else {
+                    UIManager.showSpectacularClearAnimation(true);
+                }
+            }
+        }
+    };
+    
+    // --- 9. PanZoomManager and SpeechManager (変更なし) ---
+    const PanZoomManager = {
+        handlePanStart(e) {
+            if (e.target.closest('.drop-zone-element, #exerciseTextInputContainer, #zoomSliderContainer')) return;
+            e.preventDefault();
+            AppState.isPanning = true;
+            const panEvent = e.touches ? e.touches[0] : e;
+            AppState.panStart = { x: panEvent.clientX, y: panEvent.clientY };
+            AppState.panStartScroll = { left: DOM.imageContainerWrapperExercise.scrollLeft, top: DOM.imageContainerWrapperExercise.scrollTop };
+            DOM.imageContainerWrapperExercise.style.cursor = 'grabbing';
+        },
+        handlePanMove(e) {
+            if (!AppState.isPanning) return;
+            e.preventDefault();
+            const panEvent = e.touches ? e.touches[0] : e;
+            const dx = panEvent.clientX - AppState.panStart.x;
+            const dy = panEvent.clientY - AppState.panStart.y;
+            DOM.imageContainerWrapperExercise.scrollLeft = AppState.panStartScroll.left - dx;
+            DOM.imageContainerWrapperExercise.scrollTop = AppState.panStartScroll.top - dy;
+        },
+        handlePanEnd() {
+            if (!AppState.isPanning) return;
+            AppState.isPanning = false;
+            DOM.imageContainerWrapperExercise.style.cursor = 'grab';
+        },
+        handleZoom(e) {
+            const scale = e.target.value;
+            DOM.zoomValue.textContent = `${Number(scale).toFixed(1)}x`;
+            DOM.imageDisplayAreaExercise.style.transform = `scale(${scale})`;
+        }
+    };
+        const SpeechManager = {
+        micActive: false,   // ユーザーがマイクONにしている意思
+        restartTimer: null,
+
+        setup() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) return;
+            const recognition = new SpeechRecognition();
+            Object.assign(recognition, { lang: 'ja-JP', interimResults: false, continuous: true });
+
+            recognition.onstart = () => {
+                AppState.isRecognizing = true;
+                this.updateMicButtonUI();
+                Utils.updateMessage('🎤 連続音声入力中（停止するにはマイクボタンを押してください）', 'info');
+            };
+
+            recognition.onresult = (e) => {
+                for (let i = e.resultIndex; i < e.results.length; i++) {
+                    if (!e.results[i].isFinal) continue;
+                    const transcript = (e.results[i][0].transcript || '').trim();
+                    if (!transcript) continue;
+                    const maskId = AppState.currentAnsweringMaskId;
+                    if (!maskId) continue;
+                    const input = document.getElementById('mask-text-input');
+                    if (input) input.value = transcript;
+                    ExerciseModeManager.checkAnswer(transcript, maskId);
+                }
+            };
+
+            recognition.onerror = (e) => {
+                if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+                    this.micActive = false;
+                    Utils.updateMessage('マイクの使用が許可されていません。', 'error');
+                }
+            };
+
+            recognition.onend = () => {
+                AppState.isRecognizing = false;
+                if (this.micActive) {
+                    clearTimeout(this.restartTimer);
+                    this.restartTimer = setTimeout(() => {
+                        if (!this.micActive) return;
+                        try { recognition.start(); } catch (err) {}
+                    }, 300);
+                } else {
+                    this.updateMicButtonUI();
+                }
+            };
+
+            AppState.speechRecognition = recognition;
+        },
+
+        start() {
+            if (!AppState.speechRecognition) {
+                Utils.updateMessage('このブラウザは音声入力に対応していません（Chrome推奨）。', 'error');
+                return;
+            }
+            this.micActive = true;
+            this.updateMicButtonUI();
+            if (AppState.isRecognizing) return;
+            try { AppState.speechRecognition.start(); } catch (err) {}
+        },
+
+        stop() {
+            this.micActive = false;
+            clearTimeout(this.restartTimer);
+            try { AppState.speechRecognition?.stop(); } catch (err) {}
+            this.updateMicButtonUI();
+        },
+
+        toggle() { this.micActive ? this.stop() : this.start(); },
+
+        updateMicButtonUI() {
+            const btn = document.getElementById('mic-start-btn');
+            if (!btn) return;
+            btn.classList.toggle('is-recording', this.micActive);
+            btn.textContent = this.micActive ? '🔴' : '🎤';
+            btn.title = this.micActive ? '音声入力を停止' : '音声入力を開始（連続）';
+        }
+    };
+
+    
+    // --- 10. Event Manager (スマホモード対応) ---
+    const EventManager = {
+        setup() {
+            document.body.addEventListener('click', this.handleGlobalClick.bind(this));
+            DOM.addNewQuizInput?.addEventListener('change', e => { if (e.target.files[0]) CanvasManager.handleImageUpload(e.target.files[0]); e.target.value = ''; });
+            DOM.importFromJsonInput?.addEventListener('change', e => { if(e.target.files[0]) DBManager.importFromFile(e.target.files[0]); e.target.value = ''; });
+            DOM.imageCanvas?.addEventListener('click', this.handleCanvasClick.bind(this));
+            DOM.imageCanvas?.addEventListener('mousedown', CreationModeManager.handleMouseDown.bind(CreationModeManager));
+            document.addEventListener('mousemove', e => { CreationModeManager.handleMouseMove(e); PanZoomManager.handlePanMove(e); });
+            document.addEventListener('mouseup', e => { CreationModeManager.handleMouseUp(e); PanZoomManager.handlePanEnd(e); });
+            DOM.zoomSlider?.addEventListener('input', PanZoomManager.handleZoom);
+            const exerciseContainer = DOM.imageContainerWrapperExercise;
+            if(exerciseContainer) {
+                exerciseContainer.addEventListener('mousedown', PanZoomManager.handlePanStart);
+                exerciseContainer.addEventListener('touchstart', PanZoomManager.handlePanStart, { passive: false });
+                document.addEventListener('touchmove', PanZoomManager.handlePanMove, { passive: false });
+                document.addEventListener('touchend', PanZoomManager.handlePanEnd);
+            }
+            DOM.optionsContainerCreation?.addEventListener('click', this.handleCreationOptionsClick.bind(this));
+        },
+
+        async handleCanvasClick(e) {
+            if (AppState.currentMode !== 'creation' || (!AppState.isGroupSelectMode && !AppState.importanceSelectMode)) return;
+            const rect = DOM.imageCanvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left; const clickY = e.clientY - rect.top;
+            const quiz = AppState.getCurrentCreationQuiz();
+            if (!quiz?.problemData) return;
+            const clickedMask = [...quiz.problemData].reverse().find(m => {
+                const maskRect = { x: m.rect.x * rect.width, y: m.rect.y * rect.height, width: m.rect.width * rect.width, height: m.rect.height * rect.height };
+                return clickX >= maskRect.x && clickX <= maskRect.x + maskRect.width && clickY >= maskRect.y && clickY <= maskRect.y + maskRect.height;
+            });
+            if (clickedMask) {
+                if (AppState.isGroupSelectMode) clickedMask.groupId = AppState.selectedGroupId === 'null' ? null : AppState.selectedGroupId;
+                else if (AppState.importanceSelectMode) clickedMask.importance = AppState.selectedImportance;
+                await DBManager.updateQuizBook(AppState.getCurrentQuizBook());
+                CreationModeManager.updateMaskList();
+            }
+        },
+
+        async handleCreationOptionsClick(e) {
+            const maskWrapper = e.target.closest('.option-item-wrapper');
+            if (!maskWrapper || e.target.closest('[data-action="delete-mask"]')) return;
+            const maskId = maskWrapper.dataset.maskId;
+            const quiz = AppState.getCurrentCreationQuiz();
+            const mask = quiz?.problemData.find(m => m.id === maskId);
+            if (!mask || AppState.importanceSelectMode || AppState.isGroupSelectMode) return;
+            const newText = prompt('新しいテキストを入力してください：', mask.text); 
+            if (newText !== null) {
+                mask.text = newText.trim();
+                await DBManager.updateQuizBook(AppState.getCurrentQuizBook());
+                CreationModeManager.updateMaskList();
+            }
+        },
+
+        async handleGlobalClick(e) {
+            const target = e.target.closest('[data-action]');
+            if (!target) return;
+            const action = target.dataset.action;
+            const bookId = target.closest('[data-book-id]')?.dataset.bookId;
+            const quizId = target.dataset.quizId || target.closest('[data-quiz-id]')?.dataset.quizId;
+            const maskId = target.dataset.maskId || target.closest('[data-mask-id]')?.dataset.maskId;
+            await this.dispatchAction(action, { bookId, quizId, maskId, target });
+        },
+
+        async dispatchAction(action, { bookId, quizId, maskId, target }) {
+            const handlers = {
+                'switch-mode': () => UIManager.switchToMode(target.dataset.mode),
+                'create-new-book': CanvasManager.handleNewBookCreation,
+                'reset-all': this.handleResetAll,
+                'export-all-data': this.handleExportAll,
+                'toggle-mobile-mode': this.handleToggleMobileMode,
+                'select-book': () => { AppState.currentQuizBookId = bookId; UIManager.switchToMode('problemManagement'); },
+                'rename-book': () => this.handleRenameBook(bookId),
+                'delete-book': () => this.handleDeleteBook(bookId),
+                'export-book': () => this.handleExportBook(bookId),
+                'export-problem': () => this.handleExportProblem(quizId),
+                'start-selected-exercise': this.handleStartSelectedExercise,
+                'edit-problem': () => UIManager.switchToMode('creation', { quizId }),
+                'rename-problem': () => this.handleRenameProblem(quizId),
+                'delete-problem': () => this.handleDeleteProblem(quizId),
+                'open-problem-action-modal': () => UIManager.toggleProblemActionModal(true, quizId),
+                'cancel-modal': () => UIManager.toggleProblemActionModal(false),
+                'confirm-copy': this.handleConfirmCopy,
+                'confirm-move': this.handleConfirmMove,
+                'delete-mask-on-canvas': () => CreationModeManager.deleteMask(maskId),
+                'delete-mask': () => CreationModeManager.deleteMask(maskId),
+                'exercise-problem': () => this.handleExerciseProblem(quizId),
+                'exercise-current': () => { const q = AppState.getCurrentCreationQuiz(); if (q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); },
+                'next-problem-exercise': () => { if (AppState.currentProblemIndexExercise < AppState.exerciseData.length - 1) { AppState.currentProblemIndexExercise++; ExerciseModeManager.loadExerciseProblem(); } },
+                'prev-problem-exercise': () => { if (AppState.currentProblemIndexExercise > 0) { AppState.currentProblemIndexExercise--; ExerciseModeManager.loadExerciseProblem(); } },
+                'next-problem-creation': () => { const b = AppState.getCurrentQuizBook(); if (b && AppState.currentProblemIndexCreation < b.quizzes.length - 1) { AppState.currentProblemIndexCreation++; CanvasManager.loadImageFromQuizData(b.quizzes[AppState.currentProblemIndexCreation], DOM.imageCanvas); } },
+                'prev-problem-creation': () => { const b = AppState.getCurrentQuizBook(); if (b && AppState.currentProblemIndexCreation > 0) { AppState.currentProblemIndexCreation--; CanvasManager.loadImageFromQuizData(b.quizzes[AppState.currentProblemIndexCreation], DOM.imageCanvas); } },
+                'retry-problem': this.handleRetryProblem,
+                'start-filtered-exercise-in-session': this.handleStartFilteredExerciseInSession,
+                'set-importance': () => this.handleSetImportance(target),
+                'cancel-importance-mode': this.handleCancelImportanceMode,
+                'set-group': () => this.handleSetGroup(target),
+                'cancel-group-mode': this.handleCancelGroupMode,
+                'start-filtered-exercise': this.handleStartFilteredExercise,
+                'edit-current-exercise': () => { const q = AppState.getCurrentExerciseQuiz(); if (q) UIManager.switchToMode('creation', { quizId: q.id }); }
+            };
+            if (handlers[action]) await handlers[action]();
+        },
+        
+        handleToggleMobileMode() {
+            AppState.isMobileMode = !AppState.isMobileMode;
+            document.body.classList.toggle('mobile-mode');
+            DOM.toggleMobileModeButton.textContent = AppState.isMobileMode ? '💻 PCモードに切替' : '📱 スマホモードに切替';
+            const exerciseTitle = AppState.isMobileMode ? '（タップ操作）' : '（ドラッグ＆ドロップまたはテキスト入力）';
+            Utils.updateMessage(`モードを切り替えました: ${AppState.isMobileMode ? 'スマホモード' : 'PCモード'}`, 'success');
+            // 演習モードの場合、UIを再描画
+            if (AppState.currentMode === 'exercise') {
+                ExerciseModeManager.initializeTextInputContainer();
+                ExerciseModeManager.setupDropZones();
+                ExerciseModeManager.setupExerciseOptions();
+                Utils.updateMessage(`演習を続行します。${exerciseTitle}`, 'info');
+            }
+        },
+
+        async handleResetAll() { if (confirm('本当にすべてのデータを削除しますか？')) { await db.clear(STORE_NAME); await DBManager.loadAllQuizBooks(); UIManager.switchToMode('menu'); Utils.updateMessage('全データを削除しました。', 'success'); } },
+        handleExportAll() { Utils.downloadJSON(AppState.masterQuizList, 'quiz_app_all_data.json'); Utils.updateMessage('全データをエクスポートしました。', 'success'); },
+        async handleRenameBook(bookId) { const b = AppState.masterQuizList.find(b => b.id === bookId); if(!b) return; const n = prompt('新しい名前:', b.name); if (n?.trim()) { b.name = n.trim(); await DBManager.updateQuizBook(b); UIManager.refreshQuizBookList(); Utils.updateMessage('名前を変更しました。', 'success'); } },
+        async handleDeleteBook(bookId) { if (confirm('この問題集を削除しますか？')) { await DBManager.deleteQuizBook(bookId); await DBManager.loadAllQuizBooks(); UIManager.refreshQuizBookList(); Utils.updateMessage('問題集を削除しました。', 'success'); } },
+        handleExportBook(bookId) { const b = AppState.masterQuizList.find(b => b.id === bookId); if(b) Utils.downloadJSON(b, `問題集_${b.name}.json`); },
+        handleExportProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q) Utils.downloadJSON(q, `問題_${q.title.replace(/[\\/:"*?<>|]/g, '_')}.json`); },
+        
+        handleStartSelectedExercise() {
+            const selectedIds = Array.from(document.querySelectorAll('.problem-select-cb:checked')).map(cb => cb.dataset.quizId);
+            if (selectedIds.length === 0) return Utils.updateMessage('演習する問題を1つ以上選択してください。', 'info');
+            const selectedQuizzes = AppState.getCurrentQuizBook().quizzes.filter(q => selectedIds.includes(q.id) && q.problemData?.length > 0);
+            if (selectedQuizzes.length > 0) UIManager.switchToMode('exercise', { problems: selectedQuizzes });
+            else Utils.updateMessage('選択された問題に演習可能なマスクがありません。', 'info');
+        },
+
+        async handleRenameProblem(quizId) { const b = AppState.getCurrentQuizBook(); const q = b.quizzes.find(q => q.id === quizId); if(!q) return; const n = prompt('新しい名前:', q.title); if(n?.trim()) { q.title = n.trim(); await DBManager.updateQuizBook(b); UIManager.refreshProblemList(); } },
+        async handleDeleteProblem(quizId) { if (confirm('この問題を削除しますか？')) { const b = AppState.getCurrentQuizBook(); b.quizzes = b.quizzes.filter(q => q.id !== quizId); await DBManager.updateQuizBook(b); await DBManager.loadAllQuizBooks(); if(AppState.currentMode === 'creation') UIManager.switchToMode('problemManagement'); else UIManager.refreshProblemList(); Utils.updateMessage('問題を削除しました。', 'success'); } },
+        async handleConfirmCopy() { const { sourceBookId, quizId } = AppState.problemToAction; const targetBookId = DOM.targetQuizBookSelect.value; const sB = AppState.masterQuizList.find(b => b.id === sourceBookId); const tB = AppState.masterQuizList.find(b => b.id === targetBookId); const q = sB?.quizzes.find(q => q.id === quizId); if(!sB || !tB || !q) return; const cQ = JSON.parse(JSON.stringify(q)); cQ.id = Utils.generateId(); tB.quizzes.push(cQ); await DBManager.updateQuizBook(tB); await DBManager.loadAllQuizBooks(); UIManager.refreshProblemList(); UIManager.toggleProblemActionModal(false); Utils.updateMessage(`「${cQ.title}」を「${tB.name}」に複製しました。`, 'success'); },
+        async handleConfirmMove() { const { sourceBookId, quizId } = AppState.problemToAction; const targetBookId = DOM.targetQuizBookSelect.value; if(sourceBookId === targetBookId) return Utils.updateMessage('同じ問題集には移動できません。', 'error'); const sB = AppState.masterQuizList.find(b => b.id === sourceBookId); const tB = AppState.masterQuizList.find(b => b.id === targetBookId); const qIdx = sB?.quizzes.findIndex(q => q.id === quizId); if(!sB || !tB || qIdx === -1) return; const [q] = sB.quizzes.splice(qIdx, 1); tB.quizzes.push(q); await Promise.all([DBManager.updateQuizBook(sB), DBManager.updateQuizBook(tB)]); await DBManager.loadAllQuizBooks(); UIManager.refreshProblemList(); UIManager.toggleProblemActionModal(false); Utils.updateMessage(`「${q.title}」を「${tB.name}」に移動しました。`, 'success'); },
+        handleExerciseProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); else Utils.updateMessage('この問題にはマスクがありません。', 'error'); },
+        async handleRetryProblem() { const book = AppState.masterQuizList.find(b => b.id === AppState.currentQuizBookId); if(!book) return; book.quizzes.forEach(q => { if (AppState.originalExerciseProblems.some(o => o.id === q.id)) q.problemData.forEach(m => { m.trainingPoints = 0; m.history = []; }); }); await DBManager.updateQuizBook(book); await DBManager.loadAllQuizBooks(); const newSet = AppState.getCurrentQuizBook().quizzes.filter(q => AppState.originalExerciseProblems.some(o => o.id === q.id)); ExerciseModeManager.startExerciseMode(newSet); Utils.updateMessage('鍛錬ポイントをリセットしました。', 'info'); },
+        handleStartFilteredExerciseInSession() { const s = Array.from(document.querySelectorAll('.importance-filter-cb-exercise:checked')).map(cb => cb.value); if(s.length===0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info'); const fP = JSON.parse(JSON.stringify(AppState.originalExerciseProblems)).map(q => { q.problemData = q.problemData.filter(m => s.includes(m.importance)); return q; }).filter(q => q.problemData.length > 0); if(fP.length > 0) { ExerciseModeManager.startExerciseMode(fP); Utils.updateMessage('このセッションを絞り込みました。', 'success'); } else Utils.updateMessage('該当する問題がありませんでした。', 'info'); },
+        handleSetImportance(target) { AppState.importanceSelectMode = true; AppState.isGroupSelectMode = false; AppState.selectedImportance = target.dataset.importance; Utils.updateMessage(`重要度「${target.dataset.importance}」を選択中。マスクをクリックして設定。`, 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); target.classList.add('bg-blue-500', 'text-white'); },
+        handleCancelImportanceMode() { AppState.importanceSelectMode = false; Utils.updateMessage('重要度一括設定を解除しました。', 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); },
+        handleSetGroup(target) { AppState.isGroupSelectMode = true; AppState.importanceSelectMode = false; AppState.selectedGroupId = target.dataset.groupId; Utils.updateMessage(`グループ「${target.dataset.groupId === 'null' ? '未設定' : target.dataset.groupId}」を選択中。マスクをクリックして設定。`, 'info'); document.querySelectorAll('.group-setter-btn').forEach(b => b.classList.remove('bg-green-500', 'text-white')); target.classList.add('bg-green-500', 'text-white'); },
+        handleCancelGroupMode() { AppState.isGroupSelectMode = false; Utils.updateMessage('グループ一括設定を解除しました。', 'info'); document.querySelectorAll('.group-setter-btn').forEach(b => b.classList.remove('bg-green-500', 'text-white')); },
+        handleStartFilteredExercise() { const s = Array.from(document.querySelectorAll('.importance-filter-cb:checked')).map(cb => cb.value); if(s.length===0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info'); const qB = AppState.getCurrentQuizBook(); const fP = qB.quizzes.map(q => { const fQ = JSON.parse(JSON.stringify(q)); fQ.problemData = fQ.problemData.filter(m => s.includes(m.importance)); return fQ; }).filter(q => q.problemData.length > 0); if(fP.length>0) UIManager.switchToMode('exercise', { problems: fP }); else Utils.updateMessage('該当する問題がありませんでした。', 'info'); }
+    };
+
+    // --- Final Initialization ---
+    async function initialize() {
+        try {
+            await DBManager.initDB();
+            await DBManager.loadAllQuizBooks();
+            UIManager.initializeGroupButtons();
+            EventManager.setup();
+            SpeechManager.setup();
+            const style = document.createElement('style');
+            style.textContent = `@keyframes confettiFall { 0% { transform: translateY(-20px); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } } @keyframes sparkleFloat { 0% { transform: translateY(0px) scale(0.5); opacity: 0; } 25% { transform: translateY(-20px) scale(1.2); opacity: 1; } 100% { transform: translateY(-40px) scale(0.3); opacity: 0; } }`;
+            document.head.appendChild(style);
+            UIManager.switchToMode('menu');
+            console.log('✅ Application Ready.');
+        } catch (error) {
+            console.error('❌ Initialization failed:', error);
+            Utils.updateMessage('アプリケーションの初期化に失敗しました。', 'error');
+        }
+    }
+    initialize();
+});

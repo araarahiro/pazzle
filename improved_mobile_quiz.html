@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>並べ替えクイズ - 英語学習</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <style>
+        /* General styling for the body and app container */
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 1rem;
+            overflow-y: auto;
+            margin: 0;
+        }
+        .app-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            width: 100%;
+            max-width: 600px;
+            margin: 2rem 0;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        /* Screen visibility control */
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        /* Typography and Titles */
+        .screen-title {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        /* Button Styles */
+        .action-button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 0.875rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: none;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+        .action-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+        .action-button:hover::before { left: 100%; }
+        .action-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+        }
+        .action-button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .secondary-button {
+            background: linear-gradient(135deg, #4b5563, #374151);
+            box-shadow: 0 4px 15px rgba(75, 85, 99, 0.3);
+        }
+        .tertiary-button {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+            box-shadow: 0 4px 15px rgba(107, 114, 128, 0.3);
+        }
+        .danger-button {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+        }
+        .warning-button {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+        }
+
+        /* Menu Screen Specifics */
+        #menu-screen .menu-button { margin-bottom: 1rem; }
+
+        /* Quiz Screen: Options & Answer areas */
+        .options-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            min-height: 80px;
+            margin-bottom: 1.5rem;
+            transition: all 0.3s ease;
+        }
+        #options-pool-area {
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            border: 2px dashed #cbd5e1;
+        }
+        #answer-area {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border: 2px dashed #60a5fa;
+            position: relative;
+        }
+
+        /* Quiz Screen: Individual option items */
+        .option-item {
+            padding: 0.75rem 1rem;
+            background: linear-gradient(135deg, #ffffff, #f1f5f9);
+            border-radius: 0.5rem;
+            cursor: grab;
+            user-select: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.8);
+            font-weight: 500;
+        }
+        .option-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .option-item.dragging {
+            opacity: 0.5;
+            transform: scale(1.05) rotate(2deg);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        
+        /* Message Boxes for feedback */
+        .message-box {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            text-align: center;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
+        .message-box-success {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.1));
+            color: #15803d;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        .message-box-error {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.1));
+            color: #dc2626;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Form Inputs */
+        .form-input, .form-file-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 0.5rem;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(5px);
+        }
+        .form-input:focus, .form-file-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* Correct Answer Display */
+        #correct-answer-display, #mobile-result-correct-answer {
+            text-align: center;
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1f2937;
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-radius: 0.75rem;
+            border: 2px solid #f59e0b;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.2);
+        }
+        
+        /* Animation and Overlay Styles */
+        #correct-answer-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+            pointer-events: none; opacity: 0; transition: opacity 0.5s ease;
+            z-index: 1000; background: rgba(0, 0, 0, 0.1);
+        }
+        #correct-answer-overlay.visible { opacity: 1; }
+        .success-animation { width: 200px; height: 200px; position: relative; }
+        .checkmark-circle {
+            width: 200px; height: 200px; border-radius: 50%;
+            background: transparent;
+            border: 10px solid rgba(16, 185, 129, 0.8);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        .checkmark { width: 80px; height: 80px; position: relative; }
+        .checkmark::after {
+            content: ''; position: absolute; left: 25px; top: 40px;
+            width: 18px; height: 36px; border: solid #10b981;
+            border-width: 0 10px 10px 0; transform: rotate(45deg);
+            animation: checkmark-draw 0.5s ease 0.3s forwards; opacity: 0;
+        }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); transform: scale(1); }
+            70% { box-shadow: 0 0 0 30px rgba(16, 185, 129, 0); transform: scale(1.1); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); transform: scale(1); }
+        }
+        @keyframes checkmark-draw {
+            0% { opacity: 0; transform: rotate(45deg) scale(0); }
+            100% { opacity: 1; transform: rotate(45deg) scale(1); }
+        }
+        #mission-complete-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(30, 30, 30, 0.9));
+            display: flex; justify-content: center; align-items: center;
+            z-index: 2000; opacity: 0; pointer-events: none;
+            transition: opacity 0.5s ease; cursor: pointer; backdrop-filter: blur(10px);
+        }
+        #mission-complete-overlay.visible { opacity: 1; pointer-events: auto; }
+        #mission-complete-text {
+            color: white; font-size: 3rem; font-weight: 800;
+            text-shadow: 0 0 30px #fbbf24, 0 0 60px #f59e0b;
+            transform: scale(0.3); opacity: 0;
+            text-align: center;
+            background: linear-gradient(45deg, #fbbf24, #f59e0b, #fbbf24);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; background-size: 200% 200%;
+            animation: mission-text-anim 1.5s 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, shimmer 2s ease-in-out infinite alternate;
+        }
+        @keyframes mission-text-anim { to { transform: scale(1); opacity: 1; } }
+        @keyframes shimmer {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 100% 50%; }
+        }
+        
+        /* Table Styles for Analysis Screen */
+        .table-container {
+            overflow-x: auto;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        #analysis-table {
+            width: 100%; border-collapse: collapse; margin-top: 1rem; background: white;
+        }
+        #analysis-table th, #analysis-table td {
+            border: 1px solid #e2e8f0; padding: 0.75rem; text-align: left; font-size: 0.875rem;
+        }
+        #analysis-table th {
+            background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+            font-weight: 600; color: #374151;
+        }
+        #analysis-table td.question-text-cell {
+            max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        #analysis-table td.question-text-cell:hover { background: #f0f9ff; color: #0369a1; }
+        #analysis-table tr:hover { background: rgba(248, 250, 252, 0.5); }
+        
+        /* Problem Detail View (shared style) */
+        .problem-detail-view-common {
+            padding: 1.5rem; border: 2px solid #e2e8f0; border-radius: 0.75rem;
+            background: linear-gradient(135deg, #f8fafc, #ffffff);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        /* Problem Viewer List */
+        .problem-list-item {
+            display: flex; align-items: center; padding: 1rem;
+            border-bottom: 1px solid #e2e8f0; cursor: pointer;
+            transition: all 0.3s ease; border-radius: 0.5rem; margin-bottom: 0.5rem;
+        }
+        .problem-list-item:hover {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            transform: translateX(5px);
+        }
+        .problem-list-item.selected {
+            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+            font-weight: 600; border-left: 4px solid #3b82f6;
+        }
+
+        /* Mobile Mode Specific Styles */
+        .mode-toggle-button {
+            background: linear-gradient(135deg, #10b981, #059669); color: white;
+            padding: 0.5rem 1rem; border-radius: 1.5rem; font-weight: 500;
+            border: none; cursor: pointer; transition: all 0.3s ease;
+            display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3);
+        }
+        .mode-toggle-button:hover {
+            transform: translateY(-1px); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+        .mode-toggle-button.mobile-mode {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 2px 10px rgba(245, 158, 11, 0.3);
+        }
+        .mobile-mode .option-item {
+            padding: 1rem 1.25rem; font-size: 1rem; min-height: 50px;
+            border: 2px solid transparent; cursor: pointer; user-select: none;
+        }
+        .mobile-mode .option-item:active { transform: scale(0.98); }
+        .mobile-mode .option-item.selected-for-rearrange {
+            border-color: #f59e0b; background: linear-gradient(135deg, #fef3c7, #fde68a);
+            transform: scale(1.05); box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
+        }
+        .mobile-mode .options-area { gap: 1rem; padding: 1.25rem; min-height: 100px; }
+        .mobile-mode #answer-area { border: 3px dashed #60a5fa; border-radius: 1rem; }
+        .mobile-mode #options-pool-area { border: 3px dashed #cbd5e1; border-radius: 1rem; }
+        .mobile-instruction {
+            background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2px solid #f59e0b;
+            border-radius: 0.75rem; padding: 1rem; margin-bottom: 1rem;
+            font-weight: 500; text-align: center; color: #92400e;
+        }
+        .insertion-slot {
+            width: 8px; height: 40px; border: 2px dashed #3b82f6; border-radius: 4px;
+            background: rgba(59, 130, 246, 0.1); cursor: pointer; transition: all 0.3s ease;
+            margin: 0 4px; flex-shrink: 0;
+        }
+        .insertion-slot:hover {
+            background: rgba(59, 130, 246, 0.2); border-color: #1d4ed8; transform: scale(1.1);
+        }
+        .mobile-mode .answer-area-with-slots {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+        }
+        
+        /* Utility Classes */
+        .hidden { display: none !important; }
+        .fade-in { animation: fadeIn 0.5s ease forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-up { animation: slideUp 0.3s ease forwards; }
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Screen: Main Menu -->
+        <div id="menu-screen" class="screen fade-in">
+            <h1 class="screen-title">並べ替えクイズ</h1>
+            <div id="menu-message" class="message-box hidden"></div>
+            <button id="start-quiz-button" class="action-button menu-button">クイズを開始</button>
+            <button id="review-marked-button" class="action-button secondary-button menu-button hidden">マークした問題を復習</button>
+            <button id="goto-manage-problems-button" class="action-button secondary-button menu-button">問題の管理 (インポート)</button>
+            <button id="goto-analysis-button" class="action-button secondary-button menu-button">成績分析を見る</button>
+            <button id="goto-problem-viewer-button" class="action-button secondary-button menu-button">問題一覧を見る</button>
+            <hr class="border-gray-200 my-4">
+            <div class="flex items-center justify-center gap-3 mb-4">
+                <span class="text-sm font-medium text-gray-700">操作モード:</span>
+                <button id="toggle-mobile-mode-button" class="mode-toggle-button">
+                    <span id="mode-icon">🖱️</span>
+                    <span id="mode-text">PCモード</span>
+                </button>
+            </div>
+            <div id="total-problems-info" class="text-sm text-gray-600 text-center mt-4"></div>
+            <div id="total-problems-stats" class="text-sm text-gray-500 text-center mt-1"></div>
+        </div>
+        
+        <!-- Screen: Quiz -->
+        <div id="quiz-screen" class="screen">
+            <h2 id="problem-title" class="text-xl font-semibold mb-1 text-gray-700"></h2>
+            <p id="problem-count-info" class="text-xs text-gray-500 mb-2 text-right"></p>
+            <div class="flex items-center mb-3" id="mark-for-review-container">
+                <input type="checkbox" id="mark-for-review-checkbox" class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <label for="mark-for-review-checkbox" class="text-sm text-gray-700">この問題を後で復習する</label>
+            </div>
+            <p class="text-sm text-gray-500 mb-4" id="quiz-instruction"></p>
+            <div>
+                <span class="area-label font-medium text-gray-700 block mb-2">選択肢プール:</span>
+                <div id="options-pool-area" class="options-area"></div>
+            </div>
+            <div>
+                <span class="area-label font-medium text-gray-700 block mb-2">回答欄:</span>
+                <div id="answer-area" class="options-area"></div>
+            </div>
+            <div class="mt-6 flex flex-col md:flex-row gap-2">
+                <button id="show-hint-button" class="action-button warning-button">ヒントを表示</button>
+                <button id="submit-button" class="action-button">回答する</button>
+            </div>
+            <div id="result-container" class="mt-6 hidden slide-up">
+                <div id="feedback-message" class="message-box"></div>
+                <div id="correct-answer-display" class="hidden"></div>
+                <div id="explanation" class="hidden">
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">解説</h3>
+                    <p id="explanation-text" class="text-gray-600 leading-relaxed bg-gray-50 p-3 rounded-md"></p>
+                </div>
+                <button id="skip-question-button" class="action-button warning-button mt-2 hidden">この問題をスキップする</button>
+                <button id="quiz-back-to-menu-button" class="action-button tertiary-button mt-2 hidden">メニューに戻る</button>
+            </div>
+        </div>
+        
+        <!-- Screen: Mobile Result (for incorrect answers) -->
+        <div id="mobile-result-screen" class="screen">
+            <h1 id="mobile-result-title" class="screen-title">不正解...</h1>
+            <div id="mobile-result-correct-answer" class="problem-detail-view-common"></div>
+            <div id="mobile-result-explanation" class="problem-detail-view-common mt-4"></div>
+            <div class="mt-6 flex flex-col gap-2">
+                <button id="mobile-retry-button" class="action-button">もう一度挑戦</button>
+                <button id="mobile-skip-button" class="action-button warning-button hidden">この問題をスキップする</button>
+                <button id="mobile-result-to-menu-button" class="action-button tertiary-button mt-2">メニューに戻る</button>
+            </div>
+        </div>
+
+        <!-- Screen: Manage Problems -->
+        <div id="manage-problems-screen" class="screen">
+            <h1 class="screen-title">問題の管理</h1>
+            <div id="manage-problems-message" class="message-box hidden"></div>
+            <div class="mb-6">
+                <h2 class="text-lg font-semibold mb-3 text-gray-700">Excelファイルからインポート</h2>
+                <label for="file-input" class="block mb-2 text-sm font-medium text-gray-700">Excel (.xlsx, .xls) ファイルを選択:</label>
+                <input type="file" id="file-input" class="form-file-input mb-2" accept=".xlsx,.xls">
+                <span class="text-xs text-gray-500 block mb-3">形式: 1列目=問題文, 2列目=正解の文章, 3列目=解説。<br>(1行目はヘッダーとして無視されます)</span>
+                <button id="import-file-button" class="action-button secondary-button">ファイルをインポート</button>
+            </div>
+            <hr class="border-gray-200 my-6">
+            <div class="mb-6">
+                <h2 class="text-lg font-semibold mb-3 text-gray-700">データ管理</h2>
+                <button id="clear-all-data-button" class="action-button danger-button">全てのインポート済み問題と成績を削除</button>
+            </div>
+            <hr class="border-gray-200 my-6">
+            <button id="manage-back-to-menu-button" class="action-button tertiary-button">メニューに戻る</button>
+        </div>
+        
+        <!-- Screen: Analysis -->
+        <div id="analysis-screen" class="screen">
+            <h1 class="screen-title">成績分析</h1>
+            <div class="filter-controls p-4 rounded-lg mb-4 bg-gray-50 border">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                    <div>
+                        <label for="accuracy-filter" class="block mb-1 text-sm font-medium text-gray-700">正解率がこの値以下の問題:</label>
+                        <div class="flex items-center"><input type="number" id="accuracy-filter" class="form-input" placeholder="例: 50"><span class="ml-2 text-gray-700">%</span></div>
+                    </div>
+                    <div>
+                        <label for="incorrect-count-filter" class="block mb-1 text-sm font-medium text-gray-700">間違い数がこの値以上の問題:</label>
+                        <div class="flex items-center"><input type="number" id="incorrect-count-filter" class="form-input" placeholder="例: 1"><span class="ml-2 text-gray-700">回</span></div>
+                    </div>
+                </div>
+                <div class="flex gap-4 mt-4">
+                    <button id="apply-filter-button" class="action-button secondary-button w-full">この条件で絞り込む</button>
+                    <button id="reset-filter-button" class="action-button tertiary-button w-full">絞り込みをリセット</button>
+                </div>
+            </div>
+            <button id="select-all-filtered-button" class="action-button w-full mb-4">表示中の問題を一括選択</button>
+            <div class="table-container">
+                <table id="analysis-table">
+                    <thead>
+                        <tr>
+                            <th>選択</th><th>No.</th><th>問題文</th><th>正解数</th><th>不正解数</th><th>正解率</th><th>復習マーク</th>
+                        </tr>
+                    </thead>
+                    <tbody id="analysis-table-body"></tbody>
+                </table>
+            </div>
+            <div id="analysis-detail-view" class="problem-detail-view-common hidden"></div>
+            <button id="start-selected-analysis-quiz-button" class="action-button mt-4 hidden">選択した問題でクイズを開始</button>
+            <button id="analysis-back-to-menu-button" class="action-button tertiary-button mt-2">メニューに戻る</button>
+        </div>
+        
+        <!-- Screen: Problem Viewer -->
+        <div id="problem-viewer-screen" class="screen">
+            <h1 class="screen-title">問題一覧・詳細</h1>
+            <div class="flex flex-col md:flex-row gap-4">
+                <div id="problem-list-container" class="w-full md:w-1/3 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-2"></div>
+                <div id="problem-detail-view" class="w-full md:w-2/3 problem-detail-view-common"></div>
+            </div>
+            <button id="start-selected-viewer-quiz-button" class="action-button mt-4 hidden">選択した問題でクイズを開始</button>
+            <button id="viewer-back-to-menu-button" class="action-button tertiary-button mt-2">メニューに戻る</button>
+        </div>
+
+        <!-- Overlays -->
+        <div id="correct-answer-overlay"><div class="success-animation"><div class="checkmark-circle"><div class="checkmark"></div></div></div></div>
+    </div>
+    <div id="mission-complete-overlay"><h1 id="mission-complete-text">ミッションコンプリート！</h1></div>
+
+    <!-- Audio players -->
+    <audio id="correct-sound-player" preload="auto"><source src="data:audio/wav;base64,UklGRqYAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YWYAAACAgFZ/goR+fnR2gnZ2gnR+gimEf3x6e3x8fXx8e3x6e3x8fHx8e3x8fHx8fHx8fHx8fHx8fHx8fH2AgYB+gH+Afn59fn2AfoB/gH5+fn59fn2Afn59fn59fn59fn59fn59fn59gH5/gICAfn5+fn5+foCAgH5+foB+gIB+fn6AgYCAgH5+gH6AgYCAgH6AgYCAgYCAgYCAgYCAgYCAgYCAgYCAgYCAgYCAgH5+gH6AgYCAgH5+gH6AgH5+fn6AgYCAgH5+gH6AfYB+gH59gH59fn19fn19fn19fn19fn18e3t7fHt7e3x7fHt7fHt7e3x7fHt7fHt7fHx7e3t7e3x8fHx8e3x8fHx8e3x8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHw==" type="audio/wav"></audio>
+    <audio id="mission-complete-sound-player" preload="auto"><source src="data:audio/wav;base64,UklGRvIGAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YU4GAABhYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYo=" type="audio/wav"></audio>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    /**
+     * @namespace QuizApp
+     * @description Main application controller.
+     */
+    const QuizApp = {
+        /**
+         * Initializes the application.
+         */
+        init() {
+            this.state.load();
+            this.dom.cacheElements();
+            this.events.bind();
+            this.core.updateMobileModeUI();
+            this.core.showScreen('menu');
+        },
+    };
+
+    /**
+     * @namespace state
+     * @memberof QuizApp
+     * @description Manages the application's state.
+     */
+    QuizApp.state = {
+        STORAGE_KEY: 'quizAppData_v2',
+        problemBank: [],
+        activeQuiz: [],
+        currentProblemIndex: 0,
+        currentMasterIndex: -1,
+        sessionIncorrectIndices: new Set(),
+        correctedProblemQueue: [],
+        quizPhase: 'main',
+        markedProblemIndices: new Set(),
+        selectedForCustomQuizIndices: new Set(),
+        draggedItem: null,
+        isMobileMode: false,
+        selectedItemForRearrange: null,
+
+        save() {
+            try {
+                const data = {
+                    problemBank: this.problemBank,
+                    markedProblemIndices: [...this.markedProblemIndices],
+                    isMobileMode: this.isMobileMode
+                };
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
+            } catch (e) {
+                console.error("Failed to save data", e);
+            }
+        },
+
+        load() {
+            try {
+                const savedData = localStorage.getItem(this.STORAGE_KEY);
+                if (savedData) {
+                    const parsed = JSON.parse(savedData);
+                    this.problemBank = parsed.problemBank || [];
+                    this.markedProblemIndices = new Set(parsed.markedProblemIndices || []);
+                    this.isMobileMode = parsed.isMobileMode || false;
+                }
+            } catch (e) {
+                console.error("Failed to load data", e);
+                this.problemBank = [];
+            }
+        }
+    };
+
+    /**
+     * @namespace dom
+     * @memberof QuizApp
+     * @description Handles all DOM manipulations and element caching.
+     */
+    QuizApp.dom = {
+        el: {},
+        cacheElements() {
+            const get = (id) => document.getElementById(id);
+            this.el = {
+                appContainer: document.querySelector('.app-container'),
+                screens: {
+                    menu: get('menu-screen'),
+                    quiz: get('quiz-screen'),
+                    manageProblems: get('manage-problems-screen'),
+                    analysis: get('analysis-screen'),
+                    problemViewer: get('problem-viewer-screen'),
+                    mobileResult: get('mobile-result-screen') // New screen
+                },
+                menu: {
+                    message: get('menu-message'), startQuizButton: get('start-quiz-button'),
+                    reviewMarkedButton: get('review-marked-button'),
+                    gotoManageProblemsButton: get('goto-manage-problems-button'),
+                    gotoAnalysisButton: get('goto-analysis-button'),
+                    gotoProblemViewerButton: get('goto-problem-viewer-button'),
+                    totalProblemsInfo: get('total-problems-info'),
+                    totalProblemsStats: get('total-problems-stats'),
+                    toggleMobileModeButton: get('toggle-mobile-mode-button'),
+                    modeIcon: get('mode-icon'), modeText: get('mode-text')
+                },
+                quiz: {
+                    problemTitle: get('problem-title'), problemCountInfo: get('problem-count-info'),
+                    markForReviewContainer: get('mark-for-review-container'),
+                    markForReviewCheckbox: get('mark-for-review-checkbox'),
+                    optionsPoolArea: get('options-pool-area'), answerArea: get('answer-area'),
+                    submitButton: get('submit-button'), showHintButton: get('show-hint-button'),
+                    resultContainer: get('result-container'),
+                    feedbackMessage: get('feedback-message'), correctAnswerDisplay: get('correct-answer-display'),
+                    explanationContainer: get('explanation'), explanationText: get('explanation-text'),
+                    skipButton: get('skip-question-button'), backToMenuButton: get('quiz-back-to-menu-button'),
+                    quizInstruction: get('quiz-instruction')
+                },
+                mobileResult: { // New elements
+                    title: get('mobile-result-title'),
+                    correctAnswer: get('mobile-result-correct-answer'),
+                    explanation: get('mobile-result-explanation'),
+                    retryButton: get('mobile-retry-button'),
+                    skipButton: get('mobile-skip-button'),
+                    toMenuButton: get('mobile-result-to-menu-button')
+                },
+                manageProblems: {
+                    message: get('manage-problems-message'), fileInput: get('file-input'),
+                    importFileButton: get('import-file-button'), clearAllDataButton: get('clear-all-data-button'),
+                    backToMenuButton: get('manage-back-to-menu-button')
+                },
+                analysis: {
+                    tableBody: get('analysis-table-body'), detailView: get('analysis-detail-view'),
+                    startSelectedQuizButton: get('start-selected-analysis-quiz-button'),
+                    backToMenuButton: get('analysis-back-to-menu-button'),
+                    accuracyFilterInput: get('accuracy-filter'), incorrectCountFilterInput: get('incorrect-count-filter'),
+                    applyFilterButton: get('apply-filter-button'), resetFilterButton: get('reset-filter-button'),
+                    selectAllFilteredButton: get('select-all-filtered-button')
+                },
+                problemViewer: {
+                    listContainer: get('problem-list-container'), detailView: get('problem-detail-view'),
+                    startSelectedQuizButton: get('start-selected-viewer-quiz-button'),
+                    backToMenuButton: get('viewer-back-to-menu-button')
+                },
+                overlays: {
+                    correctAnswer: get('correct-answer-overlay'),
+                    missionComplete: get('mission-complete-overlay')
+                },
+                audio: {
+                    correct: get('correct-sound-player'), missionComplete: get('mission-complete-sound-player')
+                }
+            };
+        },
+        create(tag, options = {}) {
+            const el = document.createElement(tag);
+            Object.entries(options).forEach(([key, value]) => {
+                if (key === 'classList') el.classList.add(...value);
+                else if (key === 'dataset') Object.entries(value).forEach(([dataKey, dataValue]) => el.dataset[dataKey] = dataValue);
+                else el[key] = value;
+            });
+            return el;
+        }
+    };
+
+    /**
+     * @namespace events
+     * @memberof QuizApp
+     * @description Handles all event listener binding and event handling logic.
+     */
+    QuizApp.events = {
+        bind() {
+            const { el } = QuizApp.dom;
+            const { core, state } = QuizApp;
+
+            // Menu Screen
+            el.menu.startQuizButton.addEventListener('click', () => core.startQuiz(state.problemBank, 'main'));
+            el.menu.reviewMarkedButton.addEventListener('click', () => {
+                const markedProblems = [...state.markedProblemIndices].map(i => state.problemBank[i]);
+                core.startQuiz(markedProblems, 'custom');
+            });
+            el.menu.gotoManageProblemsButton.addEventListener('click', () => core.showScreen('manageProblems'));
+            el.menu.gotoAnalysisButton.addEventListener('click', () => core.showScreen('analysis'));
+            el.menu.gotoProblemViewerButton.addEventListener('click', () => core.showScreen('problemViewer'));
+            el.menu.toggleMobileModeButton.addEventListener('click', () => core.toggleMobileMode());
+
+            // Manage Problems Screen
+            el.manageProblems.importFileButton.addEventListener('click', () => core.importProblemsFromFile());
+            el.manageProblems.clearAllDataButton.addEventListener('click', () => core.clearAllData());
+            el.manageProblems.backToMenuButton.addEventListener('click', () => core.showScreen('menu'));
+
+            // Quiz Screen
+            el.quiz.backToMenuButton.addEventListener('click', () => core.showScreen('menu'));
+            el.quiz.submitButton.addEventListener('click', () => core.currentSubmitAction());
+            el.quiz.showHintButton.addEventListener('click', () => core.showHint());
+            el.quiz.skipButton.addEventListener('click', () => core.advanceToNextProblem(true));
+            el.quiz.markForReviewCheckbox.addEventListener('change', (e) => this.handleMarkForReviewChange(e));
+            [el.quiz.optionsPoolArea, el.quiz.answerArea].forEach(area => {
+                area.addEventListener('dragover', (e) => this.handleDragOverArea(e));
+                area.addEventListener('drop', (e) => this.handleDropArea(e));
+                area.addEventListener('dragleave', () => this.clearPushAnimations());
+            });
+            el.quiz.answerArea.addEventListener('click', (e) => this.handleAnswerAreaClick(e));
+            el.quiz.optionsPoolArea.addEventListener('click', (e) => this.handleOptionsPoolClick(e));
+
+            // Mobile Result Screen
+            el.mobileResult.retryButton.addEventListener('click', () => core.loadProblem());
+            el.mobileResult.skipButton.addEventListener('click', () => core.advanceToNextProblem(true));
+            el.mobileResult.toMenuButton.addEventListener('click', () => core.showScreen('menu'));
+
+
+            // Analysis Screen (Event Delegation)
+            el.analysis.tableBody.addEventListener('click', (e) => this.handleAnalysisTableClick(e));
+            el.analysis.applyFilterButton.addEventListener('click', () => core.loadAnalysisData());
+            el.analysis.resetFilterButton.addEventListener('click', () => {
+                el.analysis.accuracyFilterInput.value = '';
+                el.analysis.incorrectCountFilterInput.value = '';
+                core.loadAnalysisData();
+            });
+            el.analysis.selectAllFilteredButton.addEventListener('click', () => this.handleSelectAllFiltered());
+            el.analysis.startSelectedQuizButton.addEventListener('click', () => core.startSelectedQuiz());
+            el.analysis.backToMenuButton.addEventListener('click', () => core.showScreen('menu'));
+
+            // Problem Viewer Screen (Event Delegation)
+            el.problemViewer.listContainer.addEventListener('click', (e) => this.handleProblemListClick(e));
+            el.problemViewer.startSelectedQuizButton.addEventListener('click', () => core.startSelectedQuiz());
+            el.problemViewer.backToMenuButton.addEventListener('click', () => core.showScreen('menu'));
+            
+            // Overlays
+            el.overlays.missionComplete.addEventListener('click', () => core.handleMissionCompleteClick());
+        },
+
+        handleMarkForReviewChange(e) {
+            const { state } = QuizApp;
+            const masterIndex = state.currentMasterIndex;
+            if (masterIndex === -1) return;
+            if (e.target.checked) {
+                state.markedProblemIndices.add(masterIndex);
+            } else {
+                state.markedProblemIndices.delete(masterIndex);
+            }
+            state.save();
+        },
+
+        handleDragStart(e) {
+            if (QuizApp.state.isMobileMode) return;
+            const item = e.target;
+            if (!item.classList.contains('option-item')) return;
+            QuizApp.state.draggedItem = item;
+            setTimeout(() => item.classList.add('dragging'), 0);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', item.textContent);
+        },
+
+        handleDragEnd() {
+            if (QuizApp.state.isMobileMode || !QuizApp.state.draggedItem) return;
+            QuizApp.state.draggedItem.classList.remove('dragging');
+            QuizApp.state.draggedItem = null;
+            this.clearPushAnimations();
+        },
+        
+        clearPushAnimations() {
+            document.querySelectorAll('.option-item').forEach(el => {
+                el.style.transform = '';
+            });
+        },
+
+        handleDragOverArea(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            
+            const { state, core } = QuizApp;
+            const targetArea = e.currentTarget;
+            this.clearPushAnimations();
+
+            if (targetArea.id !== 'answer-area' || !state.draggedItem) return;
+            
+            const afterElement = core.getDragAfterElement(targetArea, e.clientX);
+
+            if (afterElement) {
+                if (afterElement !== state.draggedItem.nextSibling) {
+                     afterElement.style.transform = 'translateX(15px)';
+                }
+            } else {
+                const lastElement = targetArea.querySelector('.option-item:last-child');
+                if (lastElement && lastElement !== state.draggedItem) {
+                    lastElement.style.transform = 'translateX(-15px)';
+                }
+            }
+        },
+
+        handleDropArea(e) {
+            e.preventDefault();
+            this.clearPushAnimations();
+            const { state, core } = QuizApp;
+            if (state.isMobileMode || !state.draggedItem) return;
+            
+            const targetArea = e.currentTarget;
+            const originArea = state.draggedItem.parentNode;
+
+            if (originArea.id === 'options-pool-area' && targetArea.id === 'answer-area') {
+                targetArea.appendChild(state.draggedItem);
+            } 
+            else if (targetArea.id === 'answer-area') {
+                const afterElement = core.getDragAfterElement(targetArea, e.clientX);
+                targetArea.insertBefore(state.draggedItem, afterElement);
+            } 
+            else {
+                targetArea.appendChild(state.draggedItem);
+            }
+        },
+        
+        handleOptionsPoolClick(e) {
+            if (!QuizApp.state.isMobileMode) return;
+            const item = e.target.closest('.option-item');
+            if(item) {
+                 QuizApp.core.moveItemToAnswerArea(item);
+            }
+        },
+
+        handleAnswerAreaClick(e) {
+             if (!QuizApp.state.isMobileMode) return;
+             const { core } = QuizApp;
+             const item = e.target.closest('.option-item');
+             const slot = e.target.closest('.insertion-slot');
+
+             if(item) {
+                 core.handleAnswerAreaItemClick(item);
+             } else if (slot) {
+                 core.insertItemAtPosition(parseInt(slot.dataset.position, 10));
+             }
+        },
+        
+        handleAnalysisTableClick(e) {
+            const { core, dom } = QuizApp;
+            const target = e.target;
+            const row = target.closest('tr');
+            if (!row) return;
+
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if(!checkbox) return;
+            
+            const index = parseInt(checkbox.dataset.index, 10);
+            
+            if (target.type === 'checkbox') {
+                this.handleSelectionChange(checkbox, 'analysis');
+            } else if (target.classList.contains('question-text-cell')) {
+                core.displayProblemDetails(dom.el.analysis.detailView, index);
+            }
+        },
+        
+        handleProblemListClick(e) {
+             const { core, dom } = QuizApp;
+             const item = e.target.closest('.problem-list-item');
+             if (!item) return;
+             
+             const index = parseInt(item.dataset.index, 10);
+
+             if (e.target.type === 'checkbox') {
+                 this.handleSelectionChange(e.target, 'viewer');
+             } else {
+                 document.querySelectorAll('.problem-list-item.selected').forEach(i => i.classList.remove('selected'));
+                 item.classList.add('selected');
+                 core.displayProblemDetails(dom.el.problemViewer.detailView, index, true);
+             }
+        },
+
+        handleSelectionChange(checkbox, context) {
+            const { state, core } = QuizApp;
+            const index = parseInt(checkbox.dataset.index, 10);
+            if (checkbox.checked) {
+                state.selectedForCustomQuizIndices.add(index);
+            } else {
+                state.selectedForCustomQuizIndices.delete(index);
+            }
+            core.updateSelectedQuizButtonState(context, state.selectedForCustomQuizIndices.size > 0);
+        },
+
+        handleSelectAllFiltered() {
+            const { state, core, dom } = QuizApp;
+            const visibleCheckboxes = dom.el.analysis.tableBody.querySelectorAll('input[type="checkbox"]');
+            visibleCheckboxes.forEach(checkbox => {
+                const index = parseInt(checkbox.dataset.index, 10);
+                checkbox.checked = true;
+                state.selectedForCustomQuizIndices.add(index);
+            });
+            core.updateSelectedQuizButtonState('analysis', state.selectedForCustomQuizIndices.size > 0);
+        }
+
+    };
+    
+    /**
+     * @namespace core
+     * @memberof QuizApp
+     * @description Contains the core logic of the application.
+     */
+    QuizApp.core = {
+        currentSubmitAction: () => {},
+
+        showScreen(screenName) {
+            const { dom } = QuizApp;
+            Object.values(dom.el.screens).forEach(screen => screen.classList.remove('active'));
+            dom.el.screens[screenName].classList.add('active');
+
+            if (screenName === 'menu') this.updateMenuScreen();
+            else if (screenName === 'analysis') this.loadAnalysisData();
+            else if (screenName === 'problemViewer') this.loadProblemListView();
+        },
+
+        updateMenuScreen() {
+            const { dom, state } = QuizApp;
+            const problemCount = state.problemBank.length;
+            dom.el.menu.totalProblemsInfo.textContent = `登録問題数: ${problemCount} 問`;
+
+            const stats = state.problemBank.reduce((acc, p) => {
+                acc.correct += p.correctCount || 0;
+                acc.incorrect += p.incorrectCount || 0;
+                return acc;
+            }, { correct: 0, incorrect: 0 });
+
+            dom.el.menu.totalProblemsStats.textContent = `総合成績: 正解 ${stats.correct} 回 / 不正解 ${stats.incorrect} 回`;
+            dom.el.menu.startQuizButton.disabled = problemCount === 0;
+            dom.el.menu.reviewMarkedButton.classList.toggle('hidden', state.markedProblemIndices.size === 0);
+        },
+        
+        startQuiz(problemSet, phase = 'main') {
+            const { state } = QuizApp;
+            state.quizPhase = phase;
+            state.activeQuiz = this.shuffleArray([...problemSet]);
+
+            if (phase === 'main') {
+                state.sessionIncorrectIndices.clear();
+                state.selectedForCustomQuizIndices.clear();
+            }
+
+            if (state.activeQuiz.length === 0) {
+                alert(phase === 'review' ? "復習する問題がありません。" : "問題が登録されていません。");
+                return;
+            }
+
+            state.activeQuiz.forEach(p => p.consecutiveIncorrect = 0);
+            state.currentProblemIndex = 0;
+            state.correctedProblemQueue = [];
+
+            this.loadProblem();
+            this.showScreen('quiz');
+        },
+
+        loadProblem() {
+            const { dom, state } = QuizApp;
+            this.showScreen('quiz'); // 必ずクイズ画面を表示する
+            this.clearCorrectAnimation();
+            this.clearMobileSelections();
+            this.hideInsertionSlots();
+            
+            dom.el.quiz.resultContainer.classList.add('hidden');
+            dom.el.quiz.skipButton.classList.add('hidden');
+            dom.el.quiz.submitButton.textContent = '回答する';
+            dom.el.quiz.submitButton.disabled = false;
+            dom.el.quiz.showHintButton.disabled = false;
+            this.currentSubmitAction = () => this.handleSubmit();
+            
+            const currentProblem = state.activeQuiz[state.currentProblemIndex];
+            state.currentMasterIndex = state.problemBank.findIndex(p => p.question === currentProblem.question);
+
+            dom.el.quiz.problemTitle.textContent = currentProblem.question;
+            const phaseText = state.quizPhase === 'review' ? ' [復習中]' : state.quizPhase === 'custom' ? ' [選択中]' : '';
+            dom.el.quiz.problemCountInfo.innerHTML = `( ${state.currentProblemIndex + 1} / ${state.activeQuiz.length} )${phaseText}`;
+            dom.el.quiz.markForReviewContainer.style.display = state.quizPhase === 'custom' ? 'none' : 'flex';
+            dom.el.quiz.markForReviewCheckbox.checked = state.markedProblemIndices.has(state.currentMasterIndex);
+
+            dom.el.quiz.optionsPoolArea.innerHTML = '';
+            dom.el.quiz.answerArea.innerHTML = '';
+
+            const shuffledOptions = this.shuffleArray([...currentProblem.options]);
+            const fragment = document.createDocumentFragment();
+            shuffledOptions.forEach(optionText => {
+                const optionElement = dom.create('div', { classList: ['option-item'], textContent: optionText });
+                this.addEventListenersToOptionItem(optionElement);
+                fragment.appendChild(optionElement);
+            });
+            dom.el.quiz.optionsPoolArea.appendChild(fragment);
+        },
+        
+        handleSubmit() {
+            const { dom, state } = QuizApp;
+            const currentProblem = state.activeQuiz[state.currentProblemIndex];
+            const originalProblemObject = state.problemBank[state.currentMasterIndex];
+            
+            const userAnswer = Array.from(dom.el.quiz.answerArea.children)
+                .filter(el => el.classList.contains('option-item'))
+                .map(item => item.textContent);
+
+            const isCorrect = JSON.stringify(userAnswer) === JSON.stringify(currentProblem.correctOrder);
+            
+            dom.el.quiz.submitButton.disabled = true;
+            dom.el.quiz.showHintButton.disabled = true;
+
+            if (isCorrect) {
+                if (originalProblemObject) originalProblemObject.correctCount = (originalProblemObject.correctCount || 0) + 1;
+                if (currentProblem.consecutiveIncorrect > 0) {
+                    state.correctedProblemQueue.push({ masterIndex: state.currentMasterIndex, turnsLeft: 2 });
+                }
+                currentProblem.consecutiveIncorrect = 0;
+
+                dom.el.quiz.resultContainer.classList.remove('hidden');
+                dom.el.quiz.feedbackMessage.className = 'message-box message-box-success';
+                dom.el.quiz.feedbackMessage.textContent = '正解！';
+                dom.el.quiz.correctAnswerDisplay.textContent = `正解: ${currentProblem.correctOrder.join(' ')}`;
+                dom.el.quiz.correctAnswerDisplay.classList.remove('hidden');
+                this.triggerCorrectAnimation();
+                this.setupNextAction(true);
+            } else {
+                if (originalProblemObject) originalProblemObject.incorrectCount = (originalProblemObject.incorrectCount || 0) + 1;
+                if (state.quizPhase !== 'custom') state.sessionIncorrectIndices.add(state.currentMasterIndex);
+                currentProblem.consecutiveIncorrect = (currentProblem.consecutiveIncorrect || 0) + 1;
+
+                if (state.isMobileMode) {
+                    const { mobileResult } = dom.el;
+                    mobileResult.correctAnswer.innerHTML = `<p class="mb-2"><strong>正解の文章:</strong> <span class="text-blue-600 font-medium">${currentProblem.correctOrder.join(' ')}</span></p>`;
+                    mobileResult.explanation.innerHTML = `<h3 class="text-lg font-semibold mb-2 text-gray-800">解説</h3><p class="text-gray-700 leading-relaxed">${currentProblem.explanation || '解説はありません。'}</p>`;
+                    mobileResult.skipButton.classList.toggle('hidden', currentProblem.consecutiveIncorrect < 2);
+                    this.showScreen('mobileResult');
+                } else {
+                    dom.el.quiz.resultContainer.classList.remove('hidden');
+                    dom.el.quiz.feedbackMessage.className = 'message-box message-box-error';
+                    dom.el.quiz.feedbackMessage.textContent = '不正解...';
+                    dom.el.quiz.correctAnswerDisplay.textContent = `正解: ${currentProblem.correctOrder.join(' ')}`;
+                    dom.el.quiz.correctAnswerDisplay.classList.remove('hidden');
+                    dom.el.quiz.skipButton.classList.toggle('hidden', currentProblem.consecutiveIncorrect < 2);
+                    this.setupNextAction(false);
+                }
+            }
+            state.save();
+
+            const explanationText = currentProblem.explanation || "解説はありません。";
+            dom.el.quiz.explanationText.innerHTML = explanationText.replace(/\n/g, '<br>');
+            dom.el.quiz.explanationContainer.classList.remove('hidden');
+        },
+        
+        setupNextAction(isCorrect) {
+            const { dom } = QuizApp;
+            dom.el.quiz.backToMenuButton.classList.remove('hidden');
+            if (isCorrect) {
+                dom.el.quiz.submitButton.textContent = '次の問題へ';
+                this.currentSubmitAction = () => this.advanceToNextProblem(false);
+            } else {
+                dom.el.quiz.submitButton.textContent = 'もう一度挑戦';
+                this.currentSubmitAction = () => this.loadProblem();
+            }
+            dom.el.quiz.submitButton.disabled = false;
+        },
+
+        advanceToNextProblem(skipped = false) {
+            const { state } = QuizApp;
+            this.clearCorrectAnimation();
+
+            if (skipped) {
+                state.activeQuiz[state.currentProblemIndex].consecutiveIncorrect = 0;
+            }
+
+            state.correctedProblemQueue.forEach(item => item.turnsLeft--);
+            state.currentProblemIndex++;
+
+            const itemToReShowIndex = state.correctedProblemQueue.findIndex(item => item.turnsLeft <= 0);
+            if (itemToReShowIndex > -1) {
+                const [itemToReShow] = state.correctedProblemQueue.splice(itemToReShowIndex, 1);
+                const reShowProblem = { ...state.problemBank[itemToReShow.masterIndex], consecutiveIncorrect: 0 };
+                state.activeQuiz.splice(state.currentProblemIndex, 0, reShowProblem);
+            }
+            
+            if (state.currentProblemIndex >= state.activeQuiz.length) {
+                this.endOfQuizSession();
+            } else {
+                this.loadProblem();
+            }
+        },
+
+        endOfQuizSession() {
+            const { state } = QuizApp;
+            if (state.quizPhase !== 'custom' && state.sessionIncorrectIndices.size > 0) {
+                 setTimeout(() => {
+                    alert(`間違えた${state.sessionIncorrectIndices.size}問で復習ラウンドを開始します！`);
+                    const reviewProblems = [...state.sessionIncorrectIndices].map(index => state.problemBank[index]);
+                    state.sessionIncorrectIndices.clear();
+                    this.startQuiz(reviewProblems, 'review');
+                }, 500);
+            } else {
+                this.triggerMissionComplete();
+            }
+        },
+        
+        showHint() {
+            const { dom, state } = QuizApp;
+            const currentProblem = state.activeQuiz[state.currentProblemIndex];
+            if (!currentProblem) return;
+
+            const firstWord = currentProblem.correctOrder[0];
+            const optionElements = [...dom.el.quiz.optionsPoolArea.children];
+            const hintElement = optionElements.find(el => el.textContent === firstWord);
+
+            if (hintElement) {
+                dom.el.quiz.answerArea.appendChild(hintElement);
+                dom.el.quiz.showHintButton.disabled = true;
+            }
+        },
+
+        importProblemsFromFile() {
+            const { dom, state } = QuizApp;
+            const file = dom.el.manageProblems.fileInput.files[0];
+            if (!file) {
+                this.displayMessage(dom.el.manageProblems.message, 'ファイルが選択されていません。', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    const newProblems = json.slice(1).map((row) => {
+                        if (!row[0] || !row[1]) return null;
+                        const question = String(row[0]).trim();
+                        const correctAnswer = String(row[1]).trim();
+                        return {
+                            question: question,
+                            correctOrder: correctAnswer.split(/\s+/).filter(word => word.length > 0),
+                            options: correctAnswer.split(/\s+/).filter(word => word.length > 0),
+                            explanation: String(row[2] || '').trim(),
+                            correctCount: 0,
+                            incorrectCount: 0,
+                        };
+                    }).filter(p => p !== null && p.options.length > 0);
+
+                    state.problemBank.push(...newProblems);
+                    state.save();
+                    this.updateMenuScreen();
+                    this.displayMessage(dom.el.manageProblems.message, `${newProblems.length}問の問題が正常にインポートされました。`, 'success');
+                } catch (err) {
+                    console.error("Import error:", err);
+                    this.displayMessage(dom.el.manageProblems.message, `ファイルの処理中にエラーが発生しました: ${err.message}`, 'error');
+                }
+            };
+            reader.onerror = () => {
+                this.displayMessage(dom.el.manageProblems.message, 'ファイルの読み取りに失敗しました。', 'error');
+            };
+            reader.readAsArrayBuffer(file);
+        },
+
+        clearAllData() {
+            if (confirm('本当にすべての問題と成績データを削除しますか？この操作は元に戻せません。')) {
+                const { state, dom } = QuizApp;
+                state.problemBank = [];
+                state.markedProblemIndices.clear();
+                state.selectedForCustomQuizIndices.clear();
+                state.save();
+                this.updateMenuScreen();
+                this.displayMessage(dom.el.manageProblems.message, 'すべてのデータが削除されました。', 'success');
+            }
+        },
+
+        loadAnalysisData() {
+            const { dom, state } = QuizApp;
+            dom.el.analysis.detailView.classList.add('hidden');
+            dom.el.analysis.tableBody.innerHTML = '';
+
+            const accuracyThreshold = parseFloat(dom.el.analysis.accuracyFilterInput.value);
+            const incorrectThreshold = parseInt(dom.el.analysis.incorrectCountFilterInput.value, 10);
+            
+            const filteredProblems = state.problemBank
+                .map((problem, index) => ({ ...problem, originalIndex: index }))
+                .filter(p => {
+                    const total = (p.correctCount || 0) + (p.incorrectCount || 0);
+                    const accuracy = total === 0 ? 100 : (p.correctCount / total) * 100;
+                    return (isNaN(accuracyThreshold) || accuracy <= accuracyThreshold) &&
+                           (isNaN(incorrectThreshold) || (p.incorrectCount || 0) >= incorrectThreshold);
+                });
+
+            if (filteredProblems.length === 0) {
+                const row = dom.create('tr');
+                const cell = dom.create('td', { textContent: '条件に合う問題がありません。', colSpan: 7});
+                cell.style.textAlign = 'center';
+                row.appendChild(cell);
+                dom.el.analysis.tableBody.appendChild(row);
+                return;
+            }
+            
+            const fragment = document.createDocumentFragment();
+            filteredProblems.forEach(p => {
+                const total = (p.correctCount || 0) + (p.incorrectCount || 0);
+                const accuracy = total > 0 ? `${((p.correctCount / total) * 100).toFixed(1)}%` : 'N/A';
+                const isMarked = state.markedProblemIndices.has(p.originalIndex);
+                const isSelected = state.selectedForCustomQuizIndices.has(p.originalIndex);
+                
+                const row = dom.create('tr');
+                row.innerHTML = `
+                    <td><input type="checkbox" data-index="${p.originalIndex}" ${isSelected ? 'checked' : ''}></td>
+                    <td>${p.originalIndex + 1}</td>
+                    <td class="question-text-cell" title="${p.question}">${p.question}</td>
+                    <td>${p.correctCount || 0}</td>
+                    <td>${p.incorrectCount || 0}</td>
+                    <td>${accuracy}</td>
+                    <td>${isMarked ? '✔️' : ''}</td>
+                `;
+                fragment.appendChild(row);
+            });
+            dom.el.analysis.tableBody.appendChild(fragment);
+            this.updateSelectedQuizButtonState('analysis', state.selectedForCustomQuizIndices.size > 0);
+        },
+        
+        loadProblemListView() {
+            const { dom, state } = QuizApp;
+            dom.el.problemViewer.listContainer.innerHTML = '';
+            dom.el.problemViewer.detailView.innerHTML = '<p class="text-gray-500">リストから問題を選択してください。</p>';
+            dom.el.problemViewer.detailView.classList.remove('hidden');
+            
+            const fragment = document.createDocumentFragment();
+            state.problemBank.forEach((p, index) => {
+                const isSelected = state.selectedForCustomQuizIndices.has(index);
+                const item = dom.create('div', { 
+                    classList: ['problem-list-item'], 
+                    dataset: { index },
+                    innerHTML: `
+                        <input type="checkbox" data-index="${index}" class="mr-3" ${isSelected ? 'checked' : ''}>
+                        <span class="flex-grow">${index + 1}. ${p.question}</span>
+                    `
+                });
+                fragment.appendChild(item);
+            });
+            dom.el.problemViewer.listContainer.appendChild(fragment);
+            this.updateSelectedQuizButtonState('viewer', state.selectedForCustomQuizIndices.size > 0);
+        },
+        
+        displayProblemDetails(viewElement, index, isViewer = false) {
+            const problem = QuizApp.state.problemBank[index];
+            if (!problem) return;
+            viewElement.innerHTML = `
+                <h3 class="text-lg font-semibold mb-2 text-gray-800">${problem.question}</h3>
+                <p class="mb-2"><strong>正解の文章:</strong> <span class="text-blue-600 font-medium">${problem.correctOrder.join(' ')}</span></p>
+                <p><strong>解説:</strong></p>
+                <p class="text-gray-700 leading-relaxed">${problem.explanation || '解説はありません。'}</p>
+            `;
+            if (isViewer || viewElement.classList.contains('hidden')) {
+                 viewElement.classList.remove('hidden');
+            }
+        },
+        
+        updateSelectedQuizButtonState(context, isVisible) {
+            const buttonId = context === 'analysis' ? 'start-selected-analysis-quiz-button' : 'start-selected-viewer-quiz-button';
+            document.getElementById(buttonId).classList.toggle('hidden', !isVisible);
+        },
+        
+        startSelectedQuiz() {
+            const { state } = QuizApp;
+            if (state.selectedForCustomQuizIndices.size === 0) {
+                alert("問題が選択されていません。");
+                return;
+            }
+            const problemSet = [...state.selectedForCustomQuizIndices].map(index => state.problemBank[index]);
+            this.startQuiz(problemSet, 'custom');
+        },
+
+        // --- UI & Animation ---
+        
+        displayMessage(element, message, type = 'info', duration = 5000) {
+            element.textContent = message;
+            element.className = 'message-box';
+            element.classList.add(`message-box-${type}`);
+            element.classList.remove('hidden');
+            if(duration > 0) {
+                 setTimeout(() => element.classList.add('hidden'), duration);
+            }
+        },
+
+        playSound(type) {
+            const audio = QuizApp.dom.el.audio[type];
+            if (audio) {
+                audio.currentTime = 0;
+                audio.play().catch(e => console.warn("Sound playback failed:", e));
+            }
+        },
+
+        triggerCorrectAnimation() {
+            const { dom } = QuizApp;
+            dom.el.overlays.correctAnswer.classList.add('visible');
+            this.playSound('correct');
+            this.correctAnimationTimeout = setTimeout(() => {
+                dom.el.overlays.correctAnswer.classList.remove('visible');
+            }, 2000);
+        },
+        
+        clearCorrectAnimation() {
+            const { dom } = QuizApp;
+            dom.el.overlays.correctAnswer.classList.remove('visible');
+            if(this.correctAnimationTimeout) {
+                clearTimeout(this.correctAnimationTimeout);
+                this.correctAnimationTimeout = null;
+            }
+        },
+
+        triggerMissionComplete() {
+            QuizApp.dom.el.overlays.missionComplete.classList.add('visible');
+            this.playSound('missionComplete');
+            this.launchConfetti();
+        },
+
+        launchConfetti() {
+            if (!window.confetti) return;
+            const duration = 5000;
+            const animationEnd = Date.now() + duration;
+            const interval = setInterval(() => {
+                const timeLeft = animationEnd - Date.now();
+                if (timeLeft <= 0) return clearInterval(interval);
+                const particleCount = 50 * (timeLeft / duration);
+                const randomInRange = (min, max) => Math.random() * (max - min) + min;
+                confetti({ startVelocity: 30, spread: 360, ticks: 60, zIndex: 3000, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+                confetti({ startVelocity: 30, spread: 360, ticks: 60, zIndex: 3000, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+            }, 250);
+        },
+        
+        handleMissionCompleteClick() {
+            QuizApp.dom.el.overlays.missionComplete.classList.remove('visible');
+            this.showScreen('menu');
+        },
+        
+        // --- Mobile Mode & Drag/Drop ---
+        toggleMobileMode() {
+            const { state } = QuizApp;
+            state.isMobileMode = !state.isMobileMode;
+            this.updateMobileModeUI();
+            state.save();
+        },
+
+        updateMobileModeUI() {
+            const { dom, state } = QuizApp;
+            dom.el.appContainer.classList.toggle('mobile-mode', state.isMobileMode);
+            dom.el.menu.toggleMobileModeButton.classList.toggle('mobile-mode', state.isMobileMode);
+            dom.el.menu.modeIcon.textContent = state.isMobileMode ? '📱' : '🖱️';
+            dom.el.menu.modeText.textContent = state.isMobileMode ? 'スマホモード' : 'PCモード';
+            dom.el.quiz.quizInstruction.className = state.isMobileMode ? 'mobile-instruction' : 'text-sm text-gray-500 mb-4';
+            dom.el.quiz.quizInstruction.textContent = state.isMobileMode 
+                ? '選択肢をタップで回答欄へ。回答欄の単語タップで並び替え開始。'
+                : '選択肢をドラッグ＆ドロップで回答欄へ移動し、並べ替えてください。';
+                
+            document.querySelectorAll('.option-item').forEach(item => {
+                const newItem = item.cloneNode(true);
+                this.addEventListenersToOptionItem(newItem);
+                if (item.parentNode) {
+                    item.parentNode.replaceChild(newItem, item);
+                }
+            });
+        },
+        
+        addEventListenersToOptionItem(item) {
+            if (QuizApp.state.isMobileMode) {
+                item.draggable = false;
+            } else {
+                item.draggable = true;
+                item.addEventListener('dragstart', QuizApp.events.handleDragStart);
+                item.addEventListener('dragend', QuizApp.events.handleDragEnd);
+            }
+        },
+
+        moveItemToAnswerArea(item) {
+            QuizApp.dom.el.quiz.answerArea.appendChild(item);
+            if (navigator.vibrate) navigator.vibrate(30);
+        },
+
+        handleAnswerAreaItemClick(item) {
+            if (QuizApp.state.selectedItemForRearrange === item) {
+                this.clearMobileSelections();
+                this.hideInsertionSlots();
+                return;
+            }
+            this.clearMobileSelections();
+            QuizApp.state.selectedItemForRearrange = item;
+            item.classList.add('selected-for-rearrange');
+            this.showInsertionSlots();
+        },
+
+        showInsertionSlots() {
+            const { dom } = QuizApp;
+            this.hideInsertionSlots();
+            const items = [...dom.el.quiz.answerArea.children].filter(c => c.classList.contains('option-item'));
+            dom.el.quiz.answerArea.classList.add('answer-area-with-slots');
+            
+            const insertSlot = (position, referenceNode) => {
+                const slot = dom.create('div', { classList: ['insertion-slot'], dataset: { position }});
+                dom.el.quiz.answerArea.insertBefore(slot, referenceNode);
+            };
+            
+            insertSlot(0, items[0] || null);
+            items.forEach((item, index) => {
+                insertSlot(index + 1, item.nextSibling);
+            });
+        },
+
+        hideInsertionSlots() {
+            const { dom } = QuizApp;
+            dom.el.quiz.answerArea.classList.remove('answer-area-with-slots');
+            dom.el.quiz.answerArea.querySelectorAll('.insertion-slot').forEach(slot => slot.remove());
+        },
+
+        insertItemAtPosition(position) {
+            const { dom, state } = QuizApp;
+            if (!state.selectedItemForRearrange) return;
+
+            const otherItems = [...dom.el.quiz.answerArea.children]
+                .filter(c => c.classList.contains('option-item') && c !== state.selectedItemForRearrange);
+
+            const referenceNode = otherItems[position] || null;
+
+            dom.el.quiz.answerArea.insertBefore(state.selectedItemForRearrange, referenceNode);
+            
+            this.clearMobileSelections();
+            this.hideInsertionSlots();
+            if (navigator.vibrate) navigator.vibrate(50);
+        },
+
+        getDragAfterElement(container, x) {
+            const draggableElements = [...container.querySelectorAll('.option-item:not(.dragging)')];
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offset = x - box.left - box.width / 2;
+                if (offset < 0 && offset > closest.offset) {
+                    return { offset: offset, element: child };
+                } else {
+                    return closest;
+                }
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
+        },
+
+        clearMobileSelections() {
+            QuizApp.state.selectedItemForRearrange?.classList.remove('selected-for-rearrange');
+            QuizApp.state.selectedItemForRearrange = null;
+        },
+
+        // --- Utilities ---
+        shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+    };
+    
+    // Initialize the application
+    QuizApp.init();
+});
+</script>
+
+</body>
+</html>
