@@ -1059,7 +1059,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             container.innerHTML = '';
             const fragment = document.createDocumentFragment();
-            const canvasRect = canvas.getBoundingClientRect();
+                        // ★変更：getBoundingClientRectはズーム(transform)の影響を受けるためoffsetを使う
+            const canvasRect = { width: canvas.offsetWidth, height: canvas.offsetHeight };
+
             
             quiz.problemData.forEach(mask => {
                 const shouldCreate = AppState.isFirstRound ? !mask.isAnswered : !mask.isAnswered && (mask.trainingPoints || 0) > 0;
