@@ -540,7 +540,123 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     };
-    
+
+        // --- 5.5 PDF Manager (★新規追加) ---
+    const PdfManager = {
+        MAX_WIDTH: 1600,      // 変換後の横幅上限。文字が読みにくければ2000等に上げる
+        JPEG_QUALITY: 0.88,
+
+        async importPdf(file) {
+            const quizBook = AppState.getCurrentQuizBook();
+            if (!quizBook) {
+                UIManager.switchToMode('quizBookSelection');
+                return Utils.updateMessage('問題を追加する問題集が選択されていません。', 'error');
+            }
+            if (typeof pdfjsLib === 'undefined') {
+                return Utils.updateMessage('PDFライブラリが読み込まれていません。index.htmlを確認してください。', 'error');
+            }
+
+            const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+            const input = prompt(
+                `このPDFは全${pdf.numPages}ページです。取り込むページを指定してください（例: 1-5, 8, 10-12）`,
+                `1-${Math.min(pdf.numPages, 20)}`
+            );
+            if (input === null) return Utils.updateMessage('取り込みをキャンセルしました。', 'info');
+
+            const pages = this.parsePageRange(input, pdf.numPages);
+            if (!pages.length) return Utils.updateMessage('ページ指定が正しくありません。', 'error');
+
+            const baseTitle = file.name.replace(/\.[^/.]+$/, '');
+            const newQuizzes = [];
+            for (const num of pages) {
+                Utils.updateMessage(`PDFを変換中... ${newQuizzes.length + 1}/${pages.length}ページ`, 'info');
+                const { dataUrl, textLayer } = await this.renderPage(pdf, num);
+                newQuizzes.push({
+                    id: Utils.generateId(),
+                    title: `${baseTitle} p.${num}`,
+                    originalImageData: dataUrl,
+                    textLayer: textLayer,
+                    problemData: []
+                });
+            }
+
+            quizBook.quizzes = [...(quizBook.quizzes || []), ...newQuizzes];
+            await DBManager.updateQuizBook(quizBook);
+            await DBManager.loadAllQuizBooks();
+            UIManager.switchToMode('creation', { quizId: newQuizzes[0].id });
+            Utils.updateMessage(`${newQuizzes.length}ページを取り込みました。`, 'success');
+        },
+
+        parsePageRange(str, max) {
+            const set = new Set();
+            String(str).split(',').forEach(part => {
+                const m = part.trim().match(/^(\d+)\s*(?:-\s*(\d+))?$/);
+                if (!m) return;
+                const a = Math.max(1, parseInt(m[1], 10));
+                const b = Math.min(max, m[2] ? parseInt(m[2], 10) : a);
+                for (let i = a; i <= b; i++) set.add(i);
+            });
+            return [...set].sort((x, y) => x - y);
+        },
+
+        async renderPage(pdf, num) {
+            const page = await pdf.getPage(num);
+            const base = page.getViewport({ scale: 1 });
+            const scale = Math.min(3, this.MAX_WIDTH / base.width);
+            const viewport = page.getViewport({ scale });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(viewport.width);
+            canvas.height = Math.round(viewport.height);
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';   // PDFの背景は透明なので白で塗る
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: ctx, viewport }).promise;
+
+            const dataUrl = canvas.toDataURL('image/jpeg', this.JPEG_QUALITY);
+            const textLayer = await this.extractTextLayer(page, viewport);
+            page.cleanup();
+            return { dataUrl, textLayer };
+        },
+
+        // 文字を相対座標(0〜1)で保存。mask.rect と同じ座標系なので直接比較できる
+        async extractTextLayer(page, viewport) {
+            try {
+                const content = await page.getTextContent();
+                const items = [];
+                content.items.forEach(it => {
+                    const s = (it.str || '').trim();
+                    if (!s) return;
+                    const t = pdfjsLib.Util.transform(viewport.transform, it.transform);
+                    const h = Math.hypot(t[2], t[3]);
+                    items.push({
+                        s: s,
+                        x: t[4] / viewport.width,
+                        y: (t[5] - h) / viewport.height,   // t[5]はベースラインなので高さ分ずらす
+                        w: (it.width * viewport.scale) / viewport.width,
+                        h: h / viewport.height
+                    });
+                });
+                return items;
+            } catch (e) {
+                console.warn('テキスト層の取得に失敗しました', e);
+                return [];
+            }
+        },
+
+        // マスク矩形の中に中心がある文字を拾って結合する
+        textInRect(quiz, rect) {
+            if (!quiz || !Array.isArray(quiz.textLayer) || !quiz.textLayer.length || !rect) return '';
+            const hits = quiz.textLayer.filter(it => {
+                const cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+                return cx >= rect.x && cx <= rect.x + rect.width
+                    && cy >= rect.y && cy <= rect.y + rect.height;
+            });
+            hits.sort((a, b) => (Math.abs(a.y - b.y) > 0.01 ? a.y - b.y : a.x - b.x));
+            return hits.map(i => i.s).join('').replace(/\s+/g, ' ').trim();
+        }
+    };
+
     // --- 6. Canvas & Image Management (リファクタリング) ---
     const CanvasManager = {
         imageCache: new WeakMap(),
