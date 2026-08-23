@@ -882,15 +882,22 @@ document.addEventListener('DOMContentLoaded', () => {
             UIManager.updateCreationNavigation();
         },
 
-        extractMaskImage(originalImage, relRect) {
+                extractMaskImage(originalImage, relRect) {
             const canvas = document.createElement('canvas');
-            const w = relRect.width * originalImage.width;
-            const h = relRect.height * originalImage.height;
-            canvas.width = w; canvas.height = h;
+            const srcW = relRect.width * originalImage.width;
+            const srcH = relRect.height * originalImage.height;
+            const MAX_W = 400;                            // ★選択肢表示用なのでこれで十分
+            const scale = Math.min(1, MAX_W / srcW);      // 小さい画像は拡大しない
+            canvas.width = Math.max(1, Math.round(srcW * scale));
+            canvas.height = Math.max(1, Math.round(srcH * scale));
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(originalImage, relRect.x * originalImage.width, relRect.y * originalImage.height, w, h, 0, 0, w, h);
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(originalImage,
+                relRect.x * originalImage.width, relRect.y * originalImage.height, srcW, srcH,
+                0, 0, canvas.width, canvas.height);
             return canvas.toDataURL('image/jpeg', 0.85);
         },
+
         async deleteMask(maskId) {
             if (!confirm('このマスクを削除しますか？')) return;
             const quizBook = AppState.getCurrentQuizBook();
