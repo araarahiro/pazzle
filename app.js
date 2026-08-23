@@ -1582,6 +1582,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 'reset-all': this.handleResetAll,
                 'export-all-data': this.handleExportAll,
                 'toggle-mobile-mode': this.handleToggleMobileMode,
+               　'toggle-stamp-mode': () => {          // ★追加
+                    AppState.stampMode = !AppState.stampMode;
+                    const btn = document.getElementById('stampModeButton');
+                    if (btn) {
+                        btn.textContent = AppState.stampMode ? 'スタンプON' : 'スタンプOFF';
+                        btn.classList.toggle('bg-orange-500', AppState.stampMode);
+                        btn.classList.toggle('bg-gray-500', !AppState.stampMode);
+                    }
+                    Utils.updateMessage(AppState.stampMode
+                        ? 'スタンプモードON：最初の1つをドラッグで作り、以降はクリックで同じ大きさのマスクを置けます。'
+                        : 'スタンプモードOFF', 'info');
+                },
                 'select-book': () => { AppState.currentQuizBookId = bookId; UIManager.switchToMode('problemManagement'); },
                 'rename-book': () => this.handleRenameBook(bookId),
                 'delete-book': () => this.handleDeleteBook(bookId),
