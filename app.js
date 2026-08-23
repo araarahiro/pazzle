@@ -677,7 +677,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
-        async handleImageUpload(file) {
+                async handleImageUpload(file) {
+            // ★追加：PDFなら専用処理へ
+            if (file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+                Utils.updateMessage('PDFを読み込んでいます...', 'info');
+                try {
+                    return await PdfManager.importPdf(file);
+                } catch (e) {
+                    console.error('PDF import failed:', e);
+                    return Utils.updateMessage('PDFの読み込みに失敗しました。', 'error');
+                }
+            }
+
             const quizBook = AppState.getCurrentQuizBook();
             if (!quizBook) {
                 UIManager.switchToMode('quizBookSelection');
@@ -685,7 +696,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             Utils.updateMessage('画像を処理しています...', 'info');
             try {
-                const imageDataURL = await Utils.blobToDataURL(file);
+                // ★変更：巨大な画像は1600px幅に縮小してから保存（容量削減）
+                const imageDataURL = await Utils.shrinkImage(file, 1600, 0.88);
                 const quiz = { id: Utils.generateId(), title: file.name.replace(/\.[^/.]+$/, ""), originalImageData: imageDataURL, problemData: [] };
                 quizBook.quizzes = [...(quizBook.quizzes || []), quiz];
                 await DBManager.updateQuizBook(quizBook);
@@ -695,6 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 Utils.updateMessage('画像の処理に失敗しました。', 'error');
             }
         },
+
 
         loadImageFromQuizData(quizData, canvas) {
             if (!quizData?.originalImageData) {
