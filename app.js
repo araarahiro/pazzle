@@ -1125,7 +1125,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         async processAnswerResult(isCorrect, targetMask, answerMask, quizInDb) {
-            const maskToUpdate = (targetMask.groupId && answerMask) ? answerMask : targetMask;
+            const maskToUpdate = (isCorrect &&targetMask.groupId && answerMask) ? answerMask : targetMask;
             const dbMask = quizInDb?.problemData.find(m => m.id === maskToUpdate.id);
 
             if (isCorrect) {
