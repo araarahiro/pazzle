@@ -178,7 +178,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 reader.readAsDataURL(blob);
             });
         },
-        
+                // ★追加：取り込む画像が大きすぎる場合だけ縮小する（容量削減）
+        shrinkImage(file, maxWidth = 1600, quality = 0.88) {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    const src = await this.blobToDataURL(file);
+                    const img = new Image();
+                    img.onload = () => {
+                        if (img.naturalWidth <= maxWidth) return resolve(src);
+                        const scale = maxWidth / img.naturalWidth;
+                        const c = document.createElement('canvas');
+                        c.width = Math.round(img.naturalWidth * scale);
+                        c.height = Math.round(img.naturalHeight * scale);
+                        const ctx = c.getContext('2d');
+                        ctx.imageSmoothingQuality = 'high';
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, c.width, c.height);
+                        ctx.drawImage(img, 0, 0, c.width, c.height);
+                        resolve(c.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = () => resolve(src);
+                    img.src = src;
+                } catch (e) { reject(e); }
+            });
+        },
         downloadJSON(data, filename) {
             const dataToExport = JSON.parse(JSON.stringify(data));
             const cleanup = (quizObj) => {
