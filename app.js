@@ -851,26 +851,37 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.selectionRectangle.style.display = 'none';
             AppState.currentSelectionRect = null;
         },
-        async createMask() {
-            const maskText = prompt("このマスク部分のテキストを入力してください：", "");
-            if (maskText === null) return;
-            
+                async createMask() {
+            const rect = AppState.currentSelectionRect;   // ★promptより前に必ず捕まえる
+            if (!rect) return;
+
             const quizBook = AppState.getCurrentQuizBook();
             let quiz = AppState.getCurrentCreationQuiz();
             if (!quiz?.originalImage) return;
-            
-            const rect = AppState.currentSelectionRect;
+
             const canvasRect = DOM.imageCanvas.getBoundingClientRect();
-            const relRect = { x: (rect.width > 0 ? rect.x : rect.x + rect.width) / canvasRect.width, y: (rect.height > 0 ? rect.y : rect.y + rect.height) / canvasRect.height, width: Math.abs(rect.width) / canvasRect.width, height: Math.abs(rect.height) / canvasRect.height };
-            
+            const relRect = {
+                x: (rect.width > 0 ? rect.x : rect.x + rect.width) / canvasRect.width,
+                y: (rect.height > 0 ? rect.y : rect.y + rect.height) / canvasRect.height,
+                width: Math.abs(rect.width) / canvasRect.width,
+                height: Math.abs(rect.height) / canvasRect.height
+            };
+
+            // ★追加：PDF由来ならその範囲の文字を初期値として提示する
+            const suggested = PdfManager.textInRect(quiz, relRect);
+
+            const maskText = prompt("このマスク部分のテキストを入力してください：", suggested);
+            if (maskText === null) return;
+
             const maskData = { id: Utils.generateId(), rect: relRect, text: maskText.trim(), imageData: this.extractMaskImage(quiz.originalImage, relRect), importance: '☆', groupId: null, history: [], trainingPoints: 0 };
-            
+
             quiz.problemData = [...(quiz.problemData || []), maskData];
             await DBManager.updateQuizBook(quizBook);
             CanvasManager.redrawCanvas(DOM.imageCanvas);
             this.updateMaskList();
             UIManager.updateCreationNavigation();
         },
+
         extractMaskImage(originalImage, relRect) {
             const canvas = document.createElement('canvas');
             const w = relRect.width * originalImage.width;
