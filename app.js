@@ -1011,7 +1011,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetMask = quiz.problemData.find(m => m.id === targetMaskId);
             if (!targetMask || targetMask.isAnswered) return;
 
-            const quizBook = AppState.masterQuizList.find(b => b.quizzes.some(q => q.id === quiz.id));
+            const quizBook = AppState.masterQuizList.find(b => b.quizzes?.some(q => q.id === quiz.id));
             const quizInDb = quizBook?.quizzes.find(q => q.id === quiz.id);
 
             const { answerMask, isCorrect } = this.evaluateAnswer(answer, targetMask, quiz);
