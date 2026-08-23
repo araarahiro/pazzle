@@ -44,6 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
         currentOptionOrder: [],
         isMobileMode: false, // スマホモードの状態
         selectedMaskForMobile: null, // スマホモードで選択中のマスクID
+
+        stampMode: false,            // ★追加：クリックで直前と同じサイズのマスクを置く
+        lastMaskSize: null,          // ★追加：直前に作ったマスクの相対サイズ
+
         // キャッシュ用変数
         _currentQuizBookCache: null,
         _currentCreationQuizCache: null,
@@ -843,14 +847,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const norm = { x: selRect.width > 0 ? selRect.x : selRect.x + selRect.width, y: selRect.height > 0 ? selRect.y : selRect.y + selRect.height, width: Math.abs(selRect.width), height: Math.abs(selRect.height) };
             Object.assign(DOM.selectionRectangle.style, { left: `${norm.x}px`, top: `${norm.y}px`, width: `${norm.width}px`, height: `${norm.height}px` });
         },
-        handleMouseUp() {
+                handleMouseUp() {
             if (!AppState.isSelecting) return;
             AppState.isSelecting = false;
             const rect = AppState.currentSelectionRect;
-            if (rect && Math.abs(rect.width) > 5 && Math.abs(rect.height) > 5) this.createMask();
+            const isDrag = rect && Math.abs(rect.width) > 5 && Math.abs(rect.height) > 5;
+
+            if (isDrag) {
+                this.createMask();
+            } else if (AppState.stampMode && AppState.lastMaskSize && rect) {
+                // ★追加：クリックした点を左上として、直前と同じ大きさのマスクを置く
+                const cr = DOM.imageCanvas.getBoundingClientRect();
+                AppState.currentSelectionRect = {
+                    x: rect.x,
+                    y: rect.y,
+                    width: AppState.lastMaskSize.width * cr.width,
+                    height: AppState.lastMaskSize.height * cr.height
+                };
+                this.createMask();
+            }
             DOM.selectionRectangle.style.display = 'none';
             AppState.currentSelectionRect = null;
         },
+
                 async createMask() {
             const rect = AppState.currentSelectionRect;   // ★promptより前に必ず捕まえる
             if (!rect) return;
@@ -872,7 +891,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const maskText = prompt("このマスク部分のテキストを入力してください：", suggested);
             if (maskText === null) return;
-
+            AppState.lastMaskSize = { width: relRect.width, height: relRect.height }; // ★追加
             const maskData = { id: Utils.generateId(), rect: relRect, text: maskText.trim(), imageData: this.extractMaskImage(quiz.originalImage, relRect), importance: '☆', groupId: null, history: [], trainingPoints: 0 };
 
             quiz.problemData = [...(quiz.problemData || []), maskData];
