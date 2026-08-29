@@ -742,10 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ar = image.width / image.height;
                 let w = container.clientWidth - 32;
                 let h = w / ar;
-                if (h > container.clientHeight - 32) {
-                    h = container.clientHeight - 32;
-                    w = h * ar;
-                }
+
                             // ★変更：元画像の解像度とズーム最大倍率を考慮して倍率を決める
                 const dpr = window.devicePixelRatio || 1;
                 const maxZoom = Number(DOM.zoomSlider?.max) || 3;
