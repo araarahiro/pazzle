@@ -827,13 +827,14 @@ document.addEventListener('DOMContentLoaded', () => {
         createDeleteButton(mask, displayRect) {
             const btn = document.createElement('button');
             btn.textContent = '×';
-            btn.className = 'absolute bg-red-600 text-white font-bold rounded-full w-3 h-3 flex items-center justify-center text-[9px] leading-none opacity-70 hover:opacity-100 pointer-events-auto';
-            btn.style.left = `${mask.rect.x * displayRect.width + mask.rect.width * displayRect.width - 12}px`;
+            btn.className = 'absolute bg-red-600 text-white font-bold rounded-full w-1.5 h-1.5 flex items-center justify-center text-[5px] leading-none opacity-60 hover:opacity-100 hover:scale-150 transition-transform pointer-events-auto';
+            btn.style.left = `${mask.rect.x * displayRect.width + mask.rect.width * displayRect.width - 6}px`;
             btn.style.top = `${mask.rect.y * displayRect.height}px`;
             btn.dataset.action = "delete-mask-on-canvas";
             btn.dataset.maskId = mask.id;
             DOM.dropZoneAndButtonContainerCreation.appendChild(btn);
         }
+
 
     };
     
