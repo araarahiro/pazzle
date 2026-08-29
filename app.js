@@ -547,8 +547,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- 5.5 PDF Manager (★新規追加) ---
     const PdfManager = {
-        MAX_WIDTH: 1600,      // 変換後の横幅上限。文字が読みにくければ2000等に上げる
-        JPEG_QUALITY: 0.88,
+        MAX_WIDTH: 2400,      // 変換後の横幅上限
+        JPEG_QUALITY: 0.9,
+
 
         async importPdf(file) {
             const quizBook = AppState.getCurrentQuizBook();
@@ -700,8 +701,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             Utils.updateMessage('画像を処理しています...', 'info');
             try {
-                // ★変更：巨大な画像は1600px幅に縮小してから保存（容量削減）
-                const imageDataURL = await Utils.shrinkImage(file, 1600, 0.88);
+                // ★変更：巨大な画像は2400px幅に縮小してから保存（容量削減）
+           const imageDataURL = await Utils.shrinkImage(file, 2400, 0.9);
+
                 const quiz = { id: Utils.generateId(), title: file.name.replace(/\.[^/.]+$/, ""), originalImageData: imageDataURL, problemData: [] };
                 quizBook.quizzes = [...(quizBook.quizzes || []), quiz];
                 await DBManager.updateQuizBook(quizBook);
@@ -744,7 +746,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     h = container.clientHeight - 32;
                     w = h * ar;
                 }
-                const scale = 1.5;
+                            // ★変更：元画像の解像度とズーム最大倍率を考慮して倍率を決める
+                const dpr = window.devicePixelRatio || 1;
+                const maxZoom = Number(DOM.zoomSlider?.max) || 3;
+                const needScale = canvas.id === 'imageCanvasExercise' ? dpr * maxZoom : dpr * 2;
+                // 元画像より高い解像度で描いても無意味なので上限をかける
+                const scale = Math.max(1.5, Math.min(needScale, image.naturalWidth / w));
+
                 canvas.width = Math.floor(w * scale);
                 canvas.height = Math.floor(h * scale);
                 canvas.style.width = `${w}px`;
