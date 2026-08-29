@@ -1593,8 +1593,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 'reset-all': this.handleResetAll,
                 'export-all-data': this.handleExportAll,
                 'toggle-mobile-mode': this.handleToggleMobileMode,
-               　'toggle-stamp-mode': () => {          // ★追加
+                'toggle-stamp-mode': () => {          // ★追加
                     AppState.stampMode = !AppState.stampMode;
+
                     const btn = document.getElementById('stampModeButton');
                     if (btn) {
                         btn.textContent = AppState.stampMode ? 'スタンプON' : 'スタンプOFF';
