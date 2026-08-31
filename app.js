@@ -321,6 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (AppState.currentMode === 'exercise' && mode !== 'exercise') SpeechManager.stop();
 
+            this.clearBulkSelectModes();
             AppState.currentMode = mode;
             document.querySelectorAll('.mode-container').forEach(div => div.classList.add('mode-hidden'));
             
@@ -367,6 +368,14 @@ document.addEventListener('DOMContentLoaded', () => {
             modeActions[mode]?.();
             DOM.globalHeaderInfo.textContent = currentBookName;
         },
+
+                clearBulkSelectModes() {
+            AppState.importanceSelectMode = false;
+            AppState.isGroupSelectMode = false;
+            document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white'));
+            document.querySelectorAll('.group-setter-btn').forEach(b => b.classList.remove('bg-green-500', 'text-white'));
+        },
+
 
         refreshQuizBookList() {
             const container = DOM.quizBookSelectionContainer;
@@ -936,6 +945,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 Utils.updateMessage('マスクを削除しました。', 'success');
             }
         },
+                getLiveCreationTarget() {
+            const book = AppState.masterQuizList.find(b => b.id === AppState.currentQuizBookId);
+            const quiz = book?.quizzes?.[AppState.currentProblemIndexCreation];
+            return { book, quiz };
+        },
+
+        async editMaskText(maskId) {
+            const { book, quiz } = this.getLiveCreationTarget();
+            const mask = quiz?.problemData?.find(m => m.id === maskId);
+            if (!book || !mask) return Utils.updateMessage('対象のマスクが見つかりませんでした。', 'error');
+
+            const newText = prompt('このマスクの正解テキストを入力してください：', mask.text || '');
+            if (newText === null) return;
+
+            mask.text = newText.trim();
+            await DBManager.updateQuizBook(book);
+            this.updateMaskList();
+            Utils.updateMessage('正解テキストを更新しました。', 'success');
+        },
+
+
         updateMaskList() {
             const container = DOM.optionsContainerCreation;
             const quiz = AppState.getCurrentCreationQuiz();
@@ -956,7 +986,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const historyStr = (mask.history || []).join('') || 'なし';
             const points = mask.trainingPoints || 0;
             const pointsColor = points > 0 ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800';
-            el.innerHTML = `<div class="flex items-center w-full"><div class="flex-shrink-0"><img src="${mask.imageData}" alt="マスク画像" class="mb-2 border border-gray-400 rounded max-w-[100px] max-h-[50px] object-contain"></div><div class="flex-grow text-left ml-4"><div class="font-semibold text-sm break-all">${mask.text || '(テキストなし)'}</div><div class="text-xs text-gray-600">重要度: <span class="font-bold text-yellow-600">${mask.importance || '☆'}</span></div>${mask.groupId ? `<div class="text-xs text-green-700 font-semibold">グループ: ${mask.groupId}</div>` : ''}<div class="text-xs text-gray-500 mt-1">履歴: <span class="history-display">${historyStr}</span></div><div class="text-xs text-gray-500 mt-1">鍛錬P: <span class="training-points-display ${pointsColor}">${points}</span></div></div></div><button class="delete-mask-btn absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600" data-action="delete-mask" data-mask-id="${mask.id}">×</button>`;
+            el.innerHTML = `<div class="flex items-center w-full"><div class="flex-shrink-0"><img src="${mask.imageData}" alt="マスク画像" class="mb-2 border border-gray-400 rounded max-w-[100px] max-h-[50px] object-contain"></div><div class="flex-grow text-left ml-4"><div class="font-semibold text-sm break-all">${mask.text || '(テキストなし)'}</div><div class="text-xs text-gray-600">重要度: <span class="font-bold text-yellow-600">${mask.importance || '☆'}</span></div>${mask.groupId ? `<div class="text-xs text-green-700 font-semibold">グループ: ${mask.groupId}</div>` : ''}<div class="text-xs text-gray-500 mt-1">履歴: <span class="history-display">${historyStr}</span></div><div class="text-xs text-gray-500 mt-1">鍛錬P: <span class="training-points-display ${pointsColor}">${points}</span></div></div></div><button class="absolute top-1 right-7 px-1.5 h-5 bg-blue-500 text-white rounded text-xs flex items-center justify-center hover:bg-blue-600" data-action="edit-mask-text" data-mask-id="${mask.id}">編集</button>
+<button class="delete-mask-btn absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600" data-action="delete-mask" data-mask-id="${mask.id}">×</button>`;
             return el;
         }
     };
@@ -1566,20 +1597,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
-        async handleCreationOptionsClick(e) {
-            const maskWrapper = e.target.closest('.option-item-wrapper');
-            if (!maskWrapper || e.target.closest('[data-action="delete-mask"]')) return;
-            const maskId = maskWrapper.dataset.maskId;
-            const quiz = AppState.getCurrentCreationQuiz();
-            const mask = quiz?.problemData.find(m => m.id === maskId);
-            if (!mask || AppState.importanceSelectMode || AppState.isGroupSelectMode) return;
-            const newText = prompt('新しいテキストを入力してください：', mask.text); 
-            if (newText !== null) {
-                mask.text = newText.trim();
-                await DBManager.updateQuizBook(AppState.getCurrentQuizBook());
-                CreationModeManager.updateMaskList();
+                async handleCreationOptionsClick(e) {
+            const wrapper = e.target.closest('.option-item-wrapper');
+            if (!wrapper) return;
+            if (e.target.closest('[data-action]')) return;
+
+            if (AppState.importanceSelectMode || AppState.isGroupSelectMode) {
+                return Utils.updateMessage('一括設定モード中です。「解除」を押してからテキストを編集してください。', 'info');
             }
+            await CreationModeManager.editMaskText(wrapper.dataset.maskId);
         },
+
 
         async handleGlobalClick(e) {
             const target = e.target.closest('[data-action]');
@@ -1626,6 +1654,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 'confirm-move': this.handleConfirmMove,
                 'delete-mask-on-canvas': () => CreationModeManager.deleteMask(maskId),
                 'delete-mask': () => CreationModeManager.deleteMask(maskId),
+             'edit-mask-text': () => CreationModeManager.editMaskText(maskId),
+
                 'exercise-problem': () => this.handleExerciseProblem(quizId),
                 'exercise-current': () => { const q = AppState.getCurrentCreationQuiz(); if (q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); },
                 'next-problem-exercise': () => { if (AppState.currentProblemIndexExercise < AppState.exerciseData.length - 1) { AppState.currentProblemIndexExercise++; ExerciseModeManager.loadExerciseProblem(); } },
