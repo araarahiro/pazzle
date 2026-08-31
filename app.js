@@ -1790,12 +1790,7 @@ document.addEventListener('DOMContentLoaded', () => {
             Utils.updateMessage(on ? 'すべての問題を選択しました。' : '選択をすべて解除しました。', 'info');
         },
 
-                handleToggleSelectAllProblems(target) {
-            const on = !!(target && target.checked);
-            document.querySelectorAll('.problem-select-cb').forEach(cb => { cb.checked = on; });
-            UIManager.updateSelectedProblemCount();
-            Utils.updateMessage(on ? 'すべての問題を選択しました。' : '選択をすべて解除しました。', 'info');
-        },
+
 
         handleStartSelectedExercise() {
             const selectedIds = Array.from(document.querySelectorAll('.problem-select-cb:checked')).map(cb => cb.dataset.quizId);
