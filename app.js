@@ -1783,21 +1783,21 @@ document.addEventListener('DOMContentLoaded', () => {
         handleExportBook(bookId) { const b = AppState.masterQuizList.find(b => b.id === bookId); if(b) Utils.downloadJSON(b, `問題集_${b.name}.json`); },
         handleExportProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q) Utils.downloadJSON(q, `問題_${q.title.replace(/[\\/:"*?<>|]/g, '_')}.json`); },
         
-        handleStartSelectedExercise() {
-                    handleToggleSelectAllProblems(target) {
+               handleToggleSelectAllProblems(target) {
             const on = !!(target && target.checked);
             document.querySelectorAll('.problem-select-cb').forEach(cb => { cb.checked = on; });
             UIManager.updateSelectedProblemCount();
             Utils.updateMessage(on ? 'すべての問題を選択しました。' : '選択をすべて解除しました。', 'info');
         },
 
-
+        handleStartSelectedExercise() {
             const selectedIds = Array.from(document.querySelectorAll('.problem-select-cb:checked')).map(cb => cb.dataset.quizId);
             if (selectedIds.length === 0) return Utils.updateMessage('演習する問題を1つ以上選択してください。', 'info');
             const selectedQuizzes = AppState.getCurrentQuizBook().quizzes.filter(q => selectedIds.includes(q.id) && q.problemData?.length > 0);
             if (selectedQuizzes.length > 0) UIManager.switchToMode('exercise', { problems: selectedQuizzes });
             else Utils.updateMessage('選択された問題に演習可能なマスクがありません。', 'info');
         },
+
 
         async handleRenameProblem(quizId) { const b = AppState.getCurrentQuizBook(); const q = b.quizzes.find(q => q.id === quizId); if(!q) return; const n = prompt('新しい名前:', q.title); if(n?.trim()) { q.title = n.trim(); await DBManager.updateQuizBook(b); UIManager.refreshProblemList(); } },
         async handleDeleteProblem(quizId) { if (confirm('この問題を削除しますか？')) { const b = AppState.getCurrentQuizBook(); b.quizzes = b.quizzes.filter(q => q.id !== quizId); await DBManager.updateQuizBook(b); await DBManager.loadAllQuizBooks(); if(AppState.currentMode === 'creation') UIManager.switchToMode('problemManagement'); else UIManager.refreshProblemList(); Utils.updateMessage('問題を削除しました。', 'success'); } },
