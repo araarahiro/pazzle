@@ -1790,6 +1790,13 @@ document.addEventListener('DOMContentLoaded', () => {
             Utils.updateMessage(on ? 'すべての問題を選択しました。' : '選択をすべて解除しました。', 'info');
         },
 
+                handleToggleSelectAllProblems(target) {
+            const on = !!(target && target.checked);
+            document.querySelectorAll('.problem-select-cb').forEach(cb => { cb.checked = on; });
+            UIManager.updateSelectedProblemCount();
+            Utils.updateMessage(on ? 'すべての問題を選択しました。' : '選択をすべて解除しました。', 'info');
+        },
+
         handleStartSelectedExercise() {
             const selectedIds = Array.from(document.querySelectorAll('.problem-select-cb:checked')).map(cb => cb.dataset.quizId);
             if (selectedIds.length === 0) return Utils.updateMessage('演習する問題を1つ以上選択してください。', 'info');
@@ -1797,6 +1804,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (selectedQuizzes.length > 0) UIManager.switchToMode('exercise', { problems: selectedQuizzes });
             else Utils.updateMessage('選択された問題に演習可能なマスクがありません。', 'info');
         },
+
 
 
         async handleRenameProblem(quizId) { const b = AppState.getCurrentQuizBook(); const q = b.quizzes.find(q => q.id === quizId); if(!q) return; const n = prompt('新しい名前:', q.title); if(n?.trim()) { q.title = n.trim(); await DBManager.updateQuizBook(b); UIManager.refreshProblemList(); } },
