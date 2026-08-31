@@ -966,6 +966,45 @@ document.addEventListener('DOMContentLoaded', () => {
             this.updateMaskList();
             Utils.updateMessage('正解テキストを更新しました。', 'success');
         },
+                // 現在編集中の問題に限定してグループを全解除
+        async clearAllGroupsInCurrentQuiz() {
+            const { book, quiz } = this.getLiveCreationTarget();
+            if (!book || !quiz?.problemData?.length) {
+                return Utils.updateMessage('対象の問題が見つかりません。', 'error');
+            }
+            const targets = quiz.problemData.filter(m => m.groupId);
+            if (targets.length === 0) {
+                return Utils.updateMessage('この問題にはグループ設定されたマスクがありません。', 'info');
+            }
+            if (!confirm(`「${quiz.title}」のマスク ${targets.length} 件のグループ設定を解除します。よろしいですか？`)) return;
+
+            targets.forEach(m => { m.groupId = null; });
+            await DBManager.updateQuizBook(book);
+            UIManager.clearBulkSelectModes();
+            CanvasManager.redrawCanvas(DOM.imageCanvas);
+            this.updateMaskList();
+            Utils.updateMessage(`${targets.length} 件のグループ設定を解除しました。`, 'success');
+        },
+
+        // 現在編集中の問題に限定して重要度を初期値（☆）に戻す
+        async clearAllImportanceInCurrentQuiz() {
+            const { book, quiz } = this.getLiveCreationTarget();
+            if (!book || !quiz?.problemData?.length) {
+                return Utils.updateMessage('対象の問題が見つかりません。', 'error');
+            }
+            const targets = quiz.problemData.filter(m => (m.importance || '☆') !== '☆');
+            if (targets.length === 0) {
+                return Utils.updateMessage('この問題には☆以外の重要度が設定されたマスクがありません。', 'info');
+            }
+            if (!confirm(`「${quiz.title}」のマスク ${targets.length} 件の重要度を「☆」に戻します。よろしいですか？`)) return;
+
+            targets.forEach(m => { m.importance = '☆'; });
+            await DBManager.updateQuizBook(book);
+            UIManager.clearBulkSelectModes();
+            this.updateMaskList();
+            Utils.updateMessage(`${targets.length} 件の重要度を「☆」に戻しました。`, 'success');
+        },
+
 
 
         updateMaskList() {
@@ -1667,6 +1706,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 'delete-mask-on-canvas': () => CreationModeManager.deleteMask(maskId),
                 'delete-mask': () => CreationModeManager.deleteMask(maskId),
              'edit-mask-text': () => CreationModeManager.editMaskText(maskId),
+               　'clear-all-groups': () => CreationModeManager.clearAllGroupsInCurrentQuiz(),
+                'clear-all-importance': () => CreationModeManager.clearAllImportanceInCurrentQuiz(),
+
 
                 'exercise-problem': () => this.handleExerciseProblem(quizId),
                 'exercise-current': () => { const q = AppState.getCurrentCreationQuiz(); if (q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); },
