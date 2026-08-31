@@ -1203,24 +1203,25 @@ document.addEventListener('DOMContentLoaded', () => {
             dropZoneElement.classList.add('active-mask-highlight');
         },
 
-                async checkAnswer(answer, targetMaskId) {
+                        async checkAnswer(answer, targetMaskId) {
             const quiz = AppState.getCurrentExerciseQuiz();
+            if (!quiz) return;
             const targetMask = quiz.problemData.find(m => m.id === targetMaskId);
             if (!targetMask || targetMask.isAnswered) return;
 
             const quizBook = AppState.masterQuizList.find(b => b.quizzes?.some(q => q.id === quiz.id));
             const quizInDb = quizBook?.quizzes.find(q => q.id === quiz.id);
 
-            const { answerMask, isCorrect } = this.evaluateAnswer(answer, targetMask, quiz);
+            const { answerMask, isCorrect, byDrag } = this.evaluateAnswer(answer, targetMask, quiz);
 
-            // ★追加：「パス」と言われたら不正解扱いにして答えを開示する
-            if (!isCorrect && this.isPassWord(answer)) {
+            if (!isCorrect && !byDrag && this.isPassWord(answer)) {
                 return this.processPass(targetMask, quizBook, quizInDb, quiz);
             }
 
-            await this.processAnswerResult(isCorrect, targetMask, answerMask, quizInDb, quiz);
-            setTimeout(() => this.updateScreenAfterAnswer(quiz), 300);
+            await this.processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb);
+            setTimeout(() => this.updateScreenAfterAnswer(quiz, isCorrect, targetMask.id), 300);
         },
+
 
         // ★追加：パスとみなす言葉（ここに単語を足せば増やせます）
                 PASS_WORDS: [
@@ -1261,7 +1262,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (quizBook) await DBManager.updateQuizBook(quizBook);
             this.clearTextInput();
-            setTimeout(() => this.updateScreenAfterAnswer(quiz), 1500);
+           　setTimeout(() => this.updateScreenAfterAnswer(quiz, true), 1500);
+
         },
 
         // ★追加：マスクの位置に答えのラベルを一定時間表示する
@@ -1293,61 +1295,59 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
 
-                evaluateAnswer(answer, targetMask, quiz) {
+                        evaluateAnswer(answer, targetMask, quiz) {
             const raw = String(answer || '').trim();
 
-            // ドラッグ＆ドロップ／タップ（マスクIDが渡される）は従来通り厳密判定
+            // ① ドラッグ＆ドロップ／タップ：渡ってくるのは選択肢のマスクID
             const byId = quiz.problemData.find(m => m.id === raw);
             if (byId) {
-                const isCorrect = targetMask.groupId
-                    ? byId.groupId === targetMask.groupId
-                    : byId.id === targetMask.id;
-                return { answerMask: byId, isCorrect };
+                const sameMask  = byId.id === targetMask.id;
+                const sameGroup = !!targetMask.groupId && !!byId.groupId && targetMask.groupId === byId.groupId;
+                return { answerMask: byId, isCorrect: sameMask || sameGroup, byDrag: true };
             }
 
-            // テキスト／音声はあいまい一致
+            // ② テキスト／音声：あいまい一致
             const TOLERANCE = 0.25;
             const hit = (mask) => Utils.looseMatch(raw, mask.text, TOLERANCE);
 
-            if (hit(targetMask)) return { answerMask: targetMask, isCorrect: true };
+            if (hit(targetMask)) return { answerMask: targetMask, isCorrect: true, byDrag: false };
 
             if (targetMask.groupId) {
                 const groupMask = quiz.problemData.find(m => m.groupId === targetMask.groupId && hit(m));
-                if (groupMask) return { answerMask: groupMask, isCorrect: true };
+                if (groupMask) return { answerMask: groupMask, isCorrect: true, byDrag: false };
             }
-
             const otherMask = quiz.problemData.find(m => hit(m));
-            return { answerMask: otherMask || null, isCorrect: false };
+            return { answerMask: otherMask || null, isCorrect: false, byDrag: false };
         },
 
 
-        async processAnswerResult(isCorrect, targetMask, answerMask, quizInDb) {
-            const maskToUpdate = (isCorrect &&targetMask.groupId && answerMask) ? answerMask : targetMask;
-            const dbMask = quizInDb?.problemData.find(m => m.id === maskToUpdate.id);
+
+                async processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb) {
+            const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
 
             if (isCorrect) {
                 if (dbMask) {
                     dbMask.history = [...(dbMask.history || []), '〇'].slice(-10);
                     dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 1);
                 }
-                maskToUpdate.trainingPoints = dbMask?.trainingPoints || 0;
-                Utils.updateMessage(`✅ 正解！ 鍛錬ポイント-1 (残り${dbMask?.trainingPoints || 0})`, 'success');
-                UIManager.showAnimation(maskToUpdate.id, 'correct');
-                try { new Audio('sounds/correct.mp3').play().catch(()=>{}); } catch(e){}
-                maskToUpdate.isAnswered = true;
+                targetMask.trainingPoints = dbMask?.trainingPoints ?? 0;
+                targetMask.isAnswered = true;
+                Utils.updateMessage(`✅ 正解！ 鍛錬ポイント-1 (残り${targetMask.trainingPoints})`, 'success');
+                UIManager.showAnimation(targetMask.id, 'correct');
+                try { new Audio('sounds/correct.mp3').play().catch(() => {}); } catch (e) {}
                 this.clearTextInput();
             } else {
                 if (dbMask) {
                     dbMask.history = [...(dbMask.history || []), '×'].slice(-10);
                     dbMask.trainingPoints = (dbMask.trainingPoints || 0) + 2;
                 }
-                targetMask.trainingPoints = dbMask?.trainingPoints || 0;
-                Utils.updateMessage(`❌ 不正解！ 鍛錬ポイント+2 (現在${dbMask?.trainingPoints || 0})`, 'error');
+                targetMask.trainingPoints = dbMask?.trainingPoints ?? 0;
+                Utils.updateMessage(`❌ 不正解！ 鍛錬ポイント+2 (現在${targetMask.trainingPoints})`, 'error');
                 UIManager.showAnimation(targetMask.id, 'incorrect');
-                this.clearTextInput(true); // shake
+                this.clearTextInput(true);
             }
-            if (quizInDb) await DBManager.updateQuizBook(quizInDb.id === AppState.currentQuizBookId ? AppState.getCurrentQuizBook() : quizInDb);
 
+            if (quizBook) await DBManager.updateQuizBook(quizBook);
         },
 
         clearTextInput(shake = false) {
@@ -1366,23 +1366,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
-        updateScreenAfterAnswer(quiz) {
+                updateScreenAfterAnswer(quiz, wasCorrect = true, lastMaskId = null) {
             CanvasManager.redrawCanvas(DOM.imageCanvasExercise);
             this.setupDropZones();
             this.setupExerciseOptions();
 
             if (quiz.problemData.every(m => m.isAnswered)) {
                 this.moveToNextProblemOrEndRound();
-            } else {
-                this.updateTrainingPointsDisplay();
-                if (!AppState.isMobileMode) {
-                    setTimeout(() => {
-                        const nextMask = quiz.problemData.find(m => !m.isAnswered);
-                        if(nextMask) DOM.dropZoneContainerExercise.querySelector(`[data-mask-id="${nextMask.id}"]`)?.click();
-                    }, 300);
-                }
+                return;
             }
+            this.updateTrainingPointsDisplay();
+            if (AppState.isMobileMode) return;
+
+            setTimeout(() => {
+                const zones = DOM.dropZoneContainerExercise;
+                let zone = (!wasCorrect && lastMaskId)
+                    ? zones.querySelector(`[data-mask-id="${lastMaskId}"]`)
+                    : null;
+                if (!zone) {
+                    const nextMask = quiz.problemData.find(m => !m.isAnswered);
+                    zone = nextMask ? zones.querySelector(`[data-mask-id="${nextMask.id}"]`) : null;
+                }
+                zone?.click();
+            }, 300);
         },
+
 
         moveToNextProblemOrEndRound() {
             if (AppState.currentProblemIndexExercise < AppState.exerciseData.length - 1) {
