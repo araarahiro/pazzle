@@ -887,6 +887,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 async createMask() {
             const rect = AppState.currentSelectionRect;   // ★promptより前に必ず捕まえる
+           AppState.suppressNextCanvasClick = true;   // 作成直後のclickで一括設定が走るのを防ぐ
+
             if (!rect) return;
 
             const quizBook = AppState.getCurrentQuizBook();
@@ -1079,7 +1081,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.addEventListener('click', () => this.handleOptionTap(mask.id, el));
             } else {
                 el.addEventListener('dragstart', e => {
-                    e.dataTransfer.setData('text/plain', mask.id);
+               e.dataTransfer.setData('text/plain', 'maskid:' + mask.id);
+
                     e.dataTransfer.effectAllowed = 'move';
                     el.style.opacity = '0.5';
                 });
@@ -1164,7 +1167,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 Utils.updateMessage('先に解答したいマスク（画像上の四角）をタップしてください', 'error');
                 return;
             }
-            this.checkAnswer(optionMaskId, AppState.selectedMaskForMobile);
+          this.checkAnswer('maskid:' + optionMaskId, AppState.selectedMaskForMobile);
+
             AppState.selectedMaskForMobile = null;
             const selectedZone = DOM.dropZoneContainerExercise.querySelector('.mobile-selected');
             if(selectedZone) selectedZone.classList.remove('mobile-selected');
@@ -1330,12 +1334,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const raw = String(answer || '').trim();
 
             // ① ドラッグ＆ドロップ／タップ：渡ってくるのは選択肢のマスクID
-            const byId = quiz.problemData.find(m => m.id === raw);
-            if (byId) {
-                const sameMask  = byId.id === targetMask.id;
-                const sameGroup = !!targetMask.groupId && !!byId.groupId && targetMask.groupId === byId.groupId;
+                        // ① 選択肢の移動（ドラッグ／タップ）：ID照合のみ。文字比較には絶対に流さない
+            if (raw.startsWith('maskid:')) {
+                const id = raw.slice(7);
+                const byId = quiz.problemData.find(m => m.id === id) || null;
+                const sameMask = !!byId && byId.id === targetMask.id;
+                const tGroup = targetMask.groupId ?? null;
+                const aGroup = byId?.groupId ?? null;
+                const sameGroup = tGroup !== null && aGroup !== null && String(tGroup) === String(aGroup);
+                console.log('[判定/ドラッグ]', { 落とした: byId?.text, 落とした側group: aGroup, 穴: targetMask.text, 穴のgroup: tGroup, 正解: sameMask || sameGroup });
                 return { answerMask: byId, isCorrect: sameMask || sameGroup, byDrag: true };
             }
+
 
             // ② テキスト／音声：あいまい一致
             const TOLERANCE = 0.25;
@@ -1580,6 +1590,8 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         async handleCanvasClick(e) {
+        if (AppState.suppressNextCanvasClick) { AppState.suppressNextCanvasClick = false; return; }
+
             if (AppState.currentMode !== 'creation' || (!AppState.isGroupSelectMode && !AppState.importanceSelectMode)) return;
             const rect = DOM.imageCanvas.getBoundingClientRect();
             const clickX = e.clientX - rect.left; const clickY = e.clientY - rect.top;
