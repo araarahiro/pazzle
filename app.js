@@ -400,11 +400,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return el;
         },
 
-        refreshProblemList() {
+                refreshProblemList() {
             const container = DOM.problemListContainerTop;
             const quizBook = AppState.getCurrentQuizBook();
             if (!container || !quizBook) {
-                if(container) container.innerHTML = '<p class="text-gray-500 text-center">問題集が見つかりません。</p>';
+                if (container) container.innerHTML = '<p class="text-gray-500 text-center">問題集が見つかりません。</p>';
                 return;
             }
             DOM.problemManagementTitle.textContent = `問題管理: ${quizBook.name}`;
@@ -415,9 +415,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             const fragment = document.createDocumentFragment();
+
+            // ★追加：全選択バー
+            const bar = document.createElement('div');
+            bar.className = 'flex items-center gap-2 mb-3 p-2 bg-blue-50 border border-blue-200 rounded';
+            bar.innerHTML = `<label class="flex items-center cursor-pointer text-sm font-semibold">`
+                + `<input type="checkbox" id="selectAllProblemsCb" class="h-5 w-5 mr-2 text-blue-600" data-action="toggle-select-all-problems">`
+                + `すべての問題を選択</label>`
+                + `<span id="selectedProblemCount" class="text-xs text-gray-600 ml-auto">0 / ${quizzes.length} 件選択中</span>`;
+            fragment.appendChild(bar);
+
             quizzes.forEach(quiz => fragment.appendChild(this.createProblemElement(quiz)));
             container.appendChild(fragment);
+
+            // ★追加：個別チェックの変更で件数表示を更新
+            container.onchange = (e) => {
+                if (e.target.classList && e.target.classList.contains('problem-select-cb')) {
+                    this.updateSelectedProblemCount();
+                }
+            };
+            this.updateSelectedProblemCount();
         },
+
+        updateSelectedProblemCount() {
+            const all = document.querySelectorAll('.problem-select-cb');
+            const checked = document.querySelectorAll('.problem-select-cb:checked');
+            const label = document.getElementById('selectedProblemCount');
+            if (label) label.textContent = `${checked.length} / ${all.length} 件選択中`;
+            const master = document.getElementById('selectAllProblemsCb');
+            if (master) {
+                master.checked = all.length > 0 && checked.length === all.length;
+                master.indeterminate = checked.length > 0 && checked.length < all.length;
+            }
+        },
+
 
         createProblemElement(quiz) {
             const el = document.createElement('div');
@@ -1696,6 +1727,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 'export-book': () => this.handleExportBook(bookId),
                 'export-problem': () => this.handleExportProblem(quizId),
                 'start-selected-exercise': this.handleStartSelectedExercise,
+                                'toggle-select-all-problems': () => this.handleToggleSelectAllProblems(target),
+
                 'edit-problem': () => UIManager.switchToMode('creation', { quizId }),
                 'rename-problem': () => this.handleRenameProblem(quizId),
                 'delete-problem': () => this.handleDeleteProblem(quizId),
@@ -1751,6 +1784,14 @@ document.addEventListener('DOMContentLoaded', () => {
         handleExportProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q) Utils.downloadJSON(q, `問題_${q.title.replace(/[\\/:"*?<>|]/g, '_')}.json`); },
         
         handleStartSelectedExercise() {
+                    handleToggleSelectAllProblems(target) {
+            const on = !!(target && target.checked);
+            document.querySelectorAll('.problem-select-cb').forEach(cb => { cb.checked = on; });
+            UIManager.updateSelectedProblemCount();
+            Utils.updateMessage(on ? 'すべての問題を選択しました。' : '選択をすべて解除しました。', 'info');
+        },
+
+
             const selectedIds = Array.from(document.querySelectorAll('.problem-select-cb:checked')).map(cb => cb.dataset.quizId);
             if (selectedIds.length === 0) return Utils.updateMessage('演習する問題を1つ以上選択してください。', 'info');
             const selectedQuizzes = AppState.getCurrentQuizBook().quizzes.filter(q => selectedIds.includes(q.id) && q.problemData?.length > 0);
