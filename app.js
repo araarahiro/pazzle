@@ -2010,7 +2010,29 @@ document.addEventListener('DOMContentLoaded', () => {
         handleCancelImportanceMode() { AppState.importanceSelectMode = false; Utils.updateMessage('重要度一括設定を解除しました。', 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); },
         handleSetGroup(target) { AppState.isGroupSelectMode = true; AppState.importanceSelectMode = false; AppState.selectedGroupId = target.dataset.groupId; Utils.updateMessage(`グループ「${target.dataset.groupId === 'null' ? '未設定' : target.dataset.groupId}」を選択中。マスクをクリックして設定。`, 'info'); document.querySelectorAll('.group-setter-btn').forEach(b => b.classList.remove('bg-green-500', 'text-white')); target.classList.add('bg-green-500', 'text-white'); },
         handleCancelGroupMode() { AppState.isGroupSelectMode = false; Utils.updateMessage('グループ一括設定を解除しました。', 'info'); document.querySelectorAll('.group-setter-btn').forEach(b => b.classList.remove('bg-green-500', 'text-white')); },
-        handleStartFilteredExercise() { const s = Array.from(document.querySelectorAll('.importance-filter-cb:checked')).map(cb => cb.value); if(s.length===0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info'); const qB = AppState.getCurrentQuizBook(); const fP = qB.quizzes.map(q => { const fQ = JSON.parse(JSON.stringify(q)); fQ.problemData = fQ.problemData.filter(m => s.includes(m.importance)); return fQ; }).filter(q => q.problemData.length > 0); if(fP.length>0) UIManager.switchToMode('exercise', { problems: fP }); else Utils.updateMessage('該当する問題がありませんでした。', 'info'); }
+                importanceLevel(v) {
+            const s = String(v ?? '').trim();
+            if (!s) return 1;
+            const stars = (s.match(/[☆★✩✭⭐]/g) || []).length;
+            if (stars) return stars;
+            const n = parseInt(s.replace(/[^0-9]/g, ''), 10);
+            return Number.isFinite(n) && n > 0 ? n : 1;
+        },
+
+        handleStartFilteredExercise() {
+            const levels = Array.from(document.querySelectorAll('.importance-filter-cb:checked')).map(cb => this.importanceLevel(cb.value));
+            if (levels.length === 0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info');
+            const qB = AppState.getCurrentQuizBook();
+            if (!qB) return Utils.updateMessage('問題集が選択されていません。', 'error');
+            const fP = (qB.quizzes || []).map(q => {
+                const fQ = JSON.parse(JSON.stringify(q));
+                fQ.problemData = (fQ.problemData || []).filter(m => levels.includes(this.importanceLevel(m.importance)));
+                return fQ;
+            }).filter(q => q.problemData.length > 0);
+            if (fP.length > 0) UIManager.switchToMode('exercise', { problems: fP });
+            else Utils.updateMessage(`重要度 ${levels.map(n => '☆'.repeat(n)).join('・')} に該当するマスクがありませんでした。`, 'info');
+        }
+
     };
 
     // --- Final Initialization ---
