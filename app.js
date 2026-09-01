@@ -1402,16 +1402,18 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         // ★追加：現在解答中のマスクから前後のマスクへ移動する
-        moveToAdjacentMask(direction) {
+                moveToAdjacentMask(direction) {
             if (AppState.isMobileMode || !AppState.currentAnsweringMaskId) return;
-            const zones = Array.from(DOM.dropZoneContainerExercise.querySelectorAll('.drop-zone-element'));
-            if (zones.length <= 1) return;
-            const currentIndex = zones.findIndex(z => z.dataset.maskId === AppState.currentAnsweringMaskId);
-            if (currentIndex === -1) return;
-            const nextIndex = (currentIndex + direction + zones.length) % zones.length;
-            const nextZone = zones[nextIndex];
-            this.showTextInputForMask(nextZone.dataset.maskId, nextZone);
+            const quiz = AppState.getCurrentExerciseQuiz();
+            const ordered = this.sortMasksInReadingOrder(this.getActiveMasks(quiz));
+            if (ordered.length <= 1) return;
+            const i = ordered.findIndex(m => m.id === AppState.currentAnsweringMaskId);
+            if (i === -1) return;
+            const next = ordered[(i + direction + ordered.length) % ordered.length];
+            const zone = DOM.dropZoneContainerExercise.querySelector(`[data-mask-id="${next.id}"]`);
+            if (zone) this.showTextInputForMask(next.id, zone);
         },
+
 
 
         cancelTextInput() {
@@ -1595,6 +1597,44 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
                        // ★追加：現在のラウンドで解答対象になっているマスク
+                // ★追加：マスクを読み順（上の行から、行内は左から右）に並べる
+        sortMasksInReadingOrder(masks) {
+            const rows = [];
+            [...masks].sort((a, b) => a.rect.y - b.rect.y).forEach(m => {
+                const cy = m.rect.y + m.rect.height / 2;
+                const row = rows.find(r => cy >= r.top && cy <= r.bottom);
+                if (row) {
+                    row.items.push(m);
+                    row.top = Math.min(row.top, m.rect.y);
+                    row.bottom = Math.max(row.bottom, m.rect.y + m.rect.height);
+                } else {
+                    rows.push({ top: m.rect.y, bottom: m.rect.y + m.rect.height, items: [m] });
+                }
+            });
+            rows.forEach(r => r.items.sort((a, b) => a.rect.x - b.rect.x));
+            return rows.flatMap(r => r.items);
+        },
+
+        // ★追加：指定マスクの次に解答すべきマスクを返す（横優先→下の行へ）
+        getNextMaskAfter(quiz, mask) {
+            const ordered = this.sortMasksInReadingOrder(this.getActiveMasks(quiz));
+            if (!ordered.length) return null;
+            if (!mask) return ordered[0];
+
+            const cy = mask.rect.y + mask.rect.height / 2;
+            // ① 同じ行にあって右側のマスク
+            const right = ordered
+                .filter(m => cy >= m.rect.y && cy <= m.rect.y + m.rect.height && m.rect.x > mask.rect.x)
+                .sort((a, b) => a.rect.x - b.rect.x)[0];
+            if (right) return right;
+            // ② 下の行の先頭（orderedは読み順なので最初に見つかるものが該当）
+            const below = ordered.find(m => (m.rect.y + m.rect.height / 2) > cy);
+            if (below) return below;
+            // ③ 最後まで行ったら先頭へ折り返す
+            return ordered[0];
+        },
+
+
         getActiveMasks(quiz) {
             if (!quiz?.problemData) return [];
             return AppState.isFirstRound
@@ -1616,13 +1656,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (AppState.isMobileMode) return;
 
             setTimeout(() => {
-                const zones = DOM.dropZoneContainerExercise;
+                               const zones = DOM.dropZoneContainerExercise;
+                const last = lastMaskId ? quiz.problemData.find(m => m.id === lastMaskId) : null;
                 let zone = (!wasCorrect && lastMaskId)
                     ? zones.querySelector(`[data-mask-id="${lastMaskId}"]`)
                     : null;
-                if (!zone) zone = zones.querySelector(`[data-mask-id="${active[0].id}"]`);
+                if (!zone) {
+                    const next = this.getNextMaskAfter(quiz, last);
+                    zone = next ? zones.querySelector(`[data-mask-id="${next.id}"]`) : null;
+                }
                 zone?.click();
             }, 300);
+
         },
 
 
