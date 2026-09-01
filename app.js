@@ -1175,43 +1175,38 @@ document.addEventListener('DOMContentLoaded', () => {
             else CanvasManager.loadImageFromQuizData(quiz, DOM.imageCanvasExercise);
         },
 
-                       // ★解答中のマスクと入力欄を画面内に入れる（スクロール量を自前で計算）
+                               // ★解答中のマスクを、画像表示エリアの内部スクロールだけで画面内に入れる
         scrollAnsweringAreaIntoView(dropZoneElement) {
             const zone = dropZoneElement
                 || DOM.dropZoneContainerExercise?.querySelector(`[data-mask-id="${AppState.currentAnsweringMaskId}"]`);
-            if (!zone) return console.warn('[scroll] マスク要素が見つかりません');
+            const wrapper = DOM.imageContainerWrapperExercise;
+            if (!zone || !wrapper) return;
 
             requestAnimationFrame(() => {
-                const wrapper = DOM.imageContainerWrapperExercise;
+                const maxX = wrapper.scrollWidth - wrapper.clientWidth;
+                const maxY = wrapper.scrollHeight - wrapper.clientHeight;
+                if (maxX <= 0 && maxY <= 0) return; // スクロールの余地がなければ何もしない
 
-                // ① 画像コンテナの内部スクロール：マスクが枠の中央に来るように寄せる
-                if (wrapper) {
-                    wrapper.style.scrollBehavior = 'auto';
-                    const z = zone.getBoundingClientRect();
-                    const w = wrapper.getBoundingClientRect();
-                    const dx = (z.left + z.width / 2) - (w.left + w.width / 2);
-                    const dy = (z.top + z.height / 2) - (w.top + w.height / 2);
-                    const maxX = wrapper.scrollWidth - wrapper.clientWidth;
-                    const maxY = wrapper.scrollHeight - wrapper.clientHeight;
-                    wrapper.scrollLeft = Math.max(0, Math.min(maxX, wrapper.scrollLeft + dx));
-                    wrapper.scrollTop = Math.max(0, Math.min(maxY, wrapper.scrollTop + dy));
-                    console.log('[scroll] 内部', { dx: Math.round(dx), dy: Math.round(dy), maxY, now: wrapper.scrollTop });
-                }
+                const z = zone.getBoundingClientRect();
+                const w = wrapper.getBoundingClientRect();
+                const m = 32; // 枠からこれだけ内側に入るように寄せる
 
-                // ② ページ全体：マスクと入力欄の両方が画面に入るように寄せる
-                const z2 = zone.getBoundingClientRect();
-                const i = DOM.exerciseTextInputContainer?.getBoundingClientRect();
-                const hasInput = i && i.height > 0;
-                const top = hasInput ? Math.min(z2.top, i.top) : z2.top;
-                const bottom = hasInput ? Math.max(z2.bottom, i.bottom) : z2.bottom;
-                const vh = window.innerHeight;
-                let d = 0;
-                if (top < 8) d = top - 8;
-                else if (bottom > vh - 8) d = Math.min(bottom - (vh - 8), Math.max(0, top - 8));
-                console.log('[scroll] ページ', { top: Math.round(top), bottom: Math.round(bottom), vh, d: Math.round(d) });
-                if (Math.abs(d) > 4) window.scrollBy({ top: d, behavior: 'smooth' });
+                // はみ出している方向にだけ、必要な分だけ動かす
+                let dx = 0, dy = 0;
+                if (z.left < w.left + m) dx = z.left - (w.left + m);
+                else if (z.right > w.right - m) dx = Math.min(z.right - (w.right - m), z.left - (w.left + m));
+                if (z.top < w.top + m) dy = z.top - (w.top + m);
+                else if (z.bottom > w.bottom - m) dy = Math.min(z.bottom - (w.bottom - m), z.top - (w.top + m));
+                if (!dx && !dy) return;
+
+                wrapper.scrollTo({
+                    left: Math.max(0, Math.min(maxX, wrapper.scrollLeft + dx)),
+                    top: Math.max(0, Math.min(maxY, wrapper.scrollTop + dy)),
+                    behavior: 'smooth'
+                });
             });
         },
+
 
 
         // ★追加：解答中のマスクと入力欄を画面内に入れる
