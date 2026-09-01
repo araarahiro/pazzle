@@ -1214,6 +1214,31 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         },
 
+        // ★追加：解答中のマスクと入力欄を画面内に入れる
+        scrollAnsweringAreaIntoView(dropZoneElement) {
+            const zone = dropZoneElement
+                || DOM.dropZoneContainerExercise?.querySelector(`[data-mask-id="${AppState.currentAnsweringMaskId}"]`);
+            if (!zone) return;
+
+            // ① マスクを画像コンテナの中央へ（内側スクロールとページスクロールを自動処理）
+            zone.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+
+            // ② スクロールが落ち着いてから、入力欄も見えているか確認して微調整
+            setTimeout(() => {
+                const i = DOM.exerciseTextInputContainer?.getBoundingClientRect();
+                if (!i || i.height === 0) return;
+                const z = zone.getBoundingClientRect();
+                const vh = window.innerHeight;
+                let delta = 0;
+                if (i.bottom > vh - 8) delta = i.bottom - (vh - 8);
+                else if (i.top < 8) delta = i.top - 8;
+                if (!delta) return;
+                // 入力欄を出すためにマスクが画面外へ消えない範囲までに抑える
+                delta = Math.min(delta, Math.max(0, z.top - 8));
+                if (delta > 4) window.scrollBy({ top: delta, behavior: 'smooth' });
+            }, 450);
+        },
+
 
 
         initializeTextInputContainer() {
@@ -1349,6 +1374,8 @@ document.addEventListener('DOMContentLoaded', () => {
             AppState.selectedMaskForMobile = maskId;
             document.querySelectorAll('.drop-zone-element.mobile-selected').forEach(el => el.classList.remove('mobile-selected'));
             element.classList.add('mobile-selected');
+                        this.scrollAnsweringAreaIntoView(element);
+
             Utils.updateMessage('対応する選択肢をタップしてください', 'info');
         },
         handleOptionTap(optionMaskId, element) {
@@ -1371,8 +1398,9 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.exerciseTextInputContainer.appendChild(inputContainer);
             this.setupTextInputEvents(inputContainer, maskId);
             this.highlightMask(dropZoneElement);
-                                    setTimeout(() => inputContainer.querySelector('input')?.focus({ preventScroll: true }), 100);
+            setTimeout(() => inputContainer.querySelector('input')?.focus({ preventScroll: true }), 100);
             this.scrollAnsweringAreaIntoView(dropZoneElement);
+
 
 
         },
