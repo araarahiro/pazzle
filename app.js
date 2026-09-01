@@ -1175,24 +1175,45 @@ document.addEventListener('DOMContentLoaded', () => {
             else CanvasManager.loadImageFromQuizData(quiz, DOM.imageCanvasExercise);
         },
 
-        // ★追加：選択肢／入力欄が画面外なら最小限だけ自動スクロール
-        ensureOptionsVisible() {
+               // ★追加：解答中のマスクと入力欄が画面に入るようにスクロールする
+        scrollAnsweringAreaIntoView(dropZoneElement) {
+            const zone = dropZoneElement
+                || DOM.dropZoneContainerExercise?.querySelector(`[data-mask-id="${AppState.currentAnsweringMaskId}"]`);
+            if (!zone) return;
+
             requestAnimationFrame(() => {
-                const opts = DOM.optionsContainerExercise;
-                const input = DOM.exerciseTextInputContainer;
-                const isVisible = el => {
-                    if (!el) return true;
-                    const r = el.getBoundingClientRect();
-                    if (r.height === 0) return true;
-                    return r.top >= 0 && r.bottom <= window.innerHeight;
-                };
-                if (isVisible(opts) && isVisible(input)) return;
-                (opts || input)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-                setTimeout(() => {
-                    if (!isVisible(input)) input?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }, 400);
+                const wrapper = DOM.imageContainerWrapperExercise;
+                const z = zone.getBoundingClientRect();
+                let dx = 0, dy = 0;
+
+                // ① 画像コンテナ内部のスクロール（縦いっぱい・拡大時にはみ出した分を寄せる）
+                if (wrapper) {
+                    const w = wrapper.getBoundingClientRect();
+                    const m = 24;
+                    if (z.left < w.left + m) dx = z.left - (w.left + m);
+                    else if (z.right > w.right - m) dx = z.right - (w.right - m);
+                    if (z.top < w.top + m) dy = z.top - (w.top + m);
+                    else if (z.bottom > w.bottom - m) dy = z.bottom - (w.bottom - m);
+                    // 実際にスクロールできる範囲に丸める
+                    dx = Math.max(-wrapper.scrollLeft, Math.min(dx, wrapper.scrollWidth - wrapper.clientWidth - wrapper.scrollLeft));
+                    dy = Math.max(-wrapper.scrollTop, Math.min(dy, wrapper.scrollHeight - wrapper.clientHeight - wrapper.scrollTop));
+                    if (dx || dy) wrapper.scrollTo({ left: wrapper.scrollLeft + dx, top: wrapper.scrollTop + dy, behavior: 'smooth' });
+                }
+
+                // ② ページ全体のスクロール（マスクと入力欄の両方を画面内に）
+                const zTop = z.top - dy;                 // ①の移動後を見込んだ位置
+                const zBottom = z.bottom - dy;
+                const i = DOM.exerciseTextInputContainer?.getBoundingClientRect();
+                const top = i && i.height > 0 ? Math.min(zTop, i.top) : zTop;
+                const bottom = i && i.height > 0 ? Math.max(zBottom, i.bottom) : zBottom;
+                const vh = window.innerHeight;
+                let delta = 0;
+                if (top < 8) delta = top - 8;                                   // 上に隠れている
+                else if (bottom > vh - 8) delta = Math.min(bottom - (vh - 8), top - 8); // 下に隠れている
+                if (Math.abs(delta) > 4) window.scrollBy({ top: delta, behavior: 'smooth' });
             });
         },
+
 
 
         initializeTextInputContainer() {
@@ -1320,6 +1341,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (AppState.selectedMaskForMobile === maskId) { // 同じマスクを再度タップで選択解除
                 AppState.selectedMaskForMobile = null;
                 element.classList.remove('mobile-selected');
+      　　　　　 this.scrollAnsweringAreaIntoView(element);
+
                 Utils.updateMessage('解答するマスクをタップしてください', 'info');
                 return;
             }
@@ -1348,8 +1371,9 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.exerciseTextInputContainer.appendChild(inputContainer);
             this.setupTextInputEvents(inputContainer, maskId);
             this.highlightMask(dropZoneElement);
-                        setTimeout(() => inputContainer.querySelector('input')?.focus(), 100);
-            this.ensureOptionsVisible(); // ★選択肢が画面外なら自動スクロール
+                                    setTimeout(() => inputContainer.querySelector('input')?.focus({ preventScroll: true }), 100);
+            this.scrollAnsweringAreaIntoView(dropZoneElement);
+
 
         },
 
