@@ -1095,6 +1095,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 8. Exercise Mode Manager (スマホモード対応 & 大幅リファクタリング) ---
     const ExerciseModeManager = {
                 startExerciseMode(problemList) {
+            AppState.exerciseMasterProblems = JSON.parse(JSON.stringify(problemList)); // 絞り込み前の原本を保持
+
             AppState.originalExerciseProblems = JSON.parse(JSON.stringify(problemList));
             AppState.exerciseData = JSON.parse(JSON.stringify(problemList));
             AppState.currentProblemIndexExercise = 0;
@@ -2005,7 +2007,29 @@ document.addEventListener('DOMContentLoaded', () => {
         async handleConfirmMove() { const { sourceBookId, quizId } = AppState.problemToAction; const targetBookId = DOM.targetQuizBookSelect.value; if(sourceBookId === targetBookId) return Utils.updateMessage('同じ問題集には移動できません。', 'error'); const sB = AppState.masterQuizList.find(b => b.id === sourceBookId); const tB = AppState.masterQuizList.find(b => b.id === targetBookId); const qIdx = sB?.quizzes.findIndex(q => q.id === quizId); if(!sB || !tB || qIdx === -1) return; const [q] = sB.quizzes.splice(qIdx, 1); tB.quizzes.push(q); await Promise.all([DBManager.updateQuizBook(sB), DBManager.updateQuizBook(tB)]); await DBManager.loadAllQuizBooks(); UIManager.refreshProblemList(); UIManager.toggleProblemActionModal(false); Utils.updateMessage(`「${q.title}」を「${tB.name}」に移動しました。`, 'success'); },
         handleExerciseProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); else Utils.updateMessage('この問題にはマスクがありません。', 'error'); },
         async handleRetryProblem() { const book = AppState.masterQuizList.find(b => b.id === AppState.currentQuizBookId); if(!book) return; book.quizzes.forEach(q => { if (AppState.originalExerciseProblems.some(o => o.id === q.id)) q.problemData.forEach(m => { m.trainingPoints = 0; m.history = []; }); }); await DBManager.updateQuizBook(book); await DBManager.loadAllQuizBooks(); const newSet = AppState.getCurrentQuizBook().quizzes.filter(q => AppState.originalExerciseProblems.some(o => o.id === q.id)); ExerciseModeManager.startExerciseMode(newSet); Utils.updateMessage('鍛錬ポイントをリセットしました。', 'info'); },
-        handleStartFilteredExerciseInSession() { const s = Array.from(document.querySelectorAll('.importance-filter-cb-exercise:checked')).map(cb => cb.value); if(s.length===0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info'); const fP = JSON.parse(JSON.stringify(AppState.originalExerciseProblems)).map(q => { q.problemData = q.problemData.filter(m => s.includes(m.importance)); return q; }).filter(q => q.problemData.length > 0); if(fP.length > 0) { ExerciseModeManager.startExerciseMode(fP); Utils.updateMessage('このセッションを絞り込みました。', 'success'); } else Utils.updateMessage('該当する問題がありませんでした。', 'info'); },
+                handleStartFilteredExerciseInSession() {
+            const levels = Array.from(document.querySelectorAll('.importance-filter-cb-exercise:checked')).map(cb => this.importanceLevel(cb.value));
+            if (levels.length === 0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info');
+
+            const source = AppState.exerciseMasterProblems || AppState.originalExerciseProblems || [];
+            if (source.length === 0) return Utils.updateMessage('演習の原本データが見つかりません。', 'error');
+            const master = JSON.parse(JSON.stringify(source)); // 原本を退避
+
+            const fP = JSON.parse(JSON.stringify(master)).map(q => {
+                q.problemData = (q.problemData || []).filter(m => levels.includes(this.importanceLevel(m.importance)));
+                return q;
+            }).filter(q => q.problemData.length > 0);
+
+            if (fP.length === 0) {
+                const all = [...new Set(master.flatMap(q => (q.problemData || []).map(m => this.importanceLevel(m.importance))))].sort();
+                return Utils.updateMessage(`該当マスクがありません（この演習に含まれる重要度: ${all.map(n => '☆'.repeat(n)).join('・') || 'なし'}）`, 'info');
+            }
+
+            ExerciseModeManager.startExerciseMode(fP);
+            AppState.exerciseMasterProblems = master; // startExerciseMode で上書きされた原本を復元
+            Utils.updateMessage(`重要度 ${levels.map(n => '☆'.repeat(n)).join('・')} で絞り込みました（${fP.reduce((s, q) => s + q.problemData.length, 0)}マスク）`, 'success');
+        },
+
         handleSetImportance(target) { AppState.importanceSelectMode = true; AppState.isGroupSelectMode = false; AppState.selectedImportance = target.dataset.importance; Utils.updateMessage(`重要度「${target.dataset.importance}」を選択中。マスクをクリックして設定。`, 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); target.classList.add('bg-blue-500', 'text-white'); },
         handleCancelImportanceMode() { AppState.importanceSelectMode = false; Utils.updateMessage('重要度一括設定を解除しました。', 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); },
         handleSetGroup(target) { AppState.isGroupSelectMode = true; AppState.importanceSelectMode = false; AppState.selectedGroupId = target.dataset.groupId; Utils.updateMessage(`グループ「${target.dataset.groupId === 'null' ? '未設定' : target.dataset.groupId}」を選択中。マスクをクリックして設定。`, 'info'); document.querySelectorAll('.group-setter-btn').forEach(b => b.classList.remove('bg-green-500', 'text-white')); target.classList.add('bg-green-500', 'text-white'); },
