@@ -38,6 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
         speechRecognition: null,
         isRecognizing: false,
         currentAnsweringMaskId: null,
+                exerciseFitMode: 'contain', // 'contain' = 全体表示 / 'height' = 縦いっぱい / 'width' = 横いっぱい
+
         isModalOpen: false,
         problemToAction: { sourceBookId: null, quizId: null },
         shouldShuffleOptions: true,
@@ -773,21 +775,47 @@ document.addEventListener('DOMContentLoaded', () => {
             image.src = quizData.originalImageData;
         },
 
+              // ★追加：演習エリアで使える表示高さ（画面下端まで）を求める
+        getAvailableExerciseHeight(container) {
+            const top = container.getBoundingClientRect().top;
+            return Math.max(200, Math.floor(window.innerHeight - top - 24));
+        },
+
         setupCanvas(image, canvas) {
             if (!canvas) return;
             requestAnimationFrame(() => {
                 const container = canvas.closest('#imageContainerWrapperCreation, #imageContainerWrapperExercise');
                 if (!container || container.clientWidth === 0) return this.setupCanvas(image, canvas);
-                
+
                 const ar = image.width / image.height;
                 let w = container.clientWidth - 32;
                 let h = w / ar;
 
-                            // ★変更：元画像の解像度とズーム最大倍率を考慮して倍率を決める
+                // ★追加：演習モードは表示モードに応じてサイズを決める
+                if (canvas.id === 'imageCanvasExercise') {
+                    const mode = AppState.exerciseFitMode || 'contain';
+                    const availW = w;
+                    const availH = this.getAvailableExerciseHeight(container);
+                    if (mode === 'height') {
+                        h = availH;
+                        w = h * ar;
+                    } else if (mode === 'width') {
+                        w = availW;
+                        h = w / ar;
+                    } else { // contain：画像全体が収まるように縦横どちらも収める
+                        const s = Math.min(availW / image.width, availH / image.height);
+                        w = image.width * s;
+                        h = image.height * s;
+                    }
+                    w = Math.floor(w);
+                    h = Math.floor(h);
+                    container.style.overflow = 'auto'; // 縦いっぱい時に横スクロールできるように
+                }
+
+                // 元画像の解像度とズーム最大倍率を考慮して倍率を決める
                 const dpr = window.devicePixelRatio || 1;
                 const maxZoom = Number(DOM.zoomSlider?.max) || 3;
                 const needScale = canvas.id === 'imageCanvasExercise' ? dpr * maxZoom : dpr * 2;
-                // 元画像より高い解像度で描いても無意味なので上限をかける
                 const scale = Math.max(1.5, Math.min(needScale, image.naturalWidth / w));
 
                 canvas.width = Math.floor(w * scale);
@@ -796,7 +824,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 canvas.style.height = `${h}px`;
 
                 this.redrawCanvas(canvas);
-                
+
                 if (canvas.id === 'imageCanvasExercise') {
                     ExerciseModeManager.setupDropZones();
                     ExerciseModeManager.setupExerciseOptions();
@@ -1066,19 +1094,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 8. Exercise Mode Manager (スマホモード対応 & 大幅リファクタリング) ---
     const ExerciseModeManager = {
-        startExerciseMode(problemList) {
+                startExerciseMode(problemList) {
             AppState.originalExerciseProblems = JSON.parse(JSON.stringify(problemList));
             AppState.exerciseData = JSON.parse(JSON.stringify(problemList));
-            AppState.currentProblemIndexExercise = 0; 
+            AppState.currentProblemIndexExercise = 0;
             AppState.exerciseRound = 1;
             AppState.isFirstRound = true;
+            AppState.exerciseFitMode = 'contain'; // ★標準は画像全体表示
             if (DOM.zoomSlider) {
                 DOM.zoomSlider.value = 1;
                 DOM.zoomValue.textContent = '1.0x';
                 DOM.imageDisplayAreaExercise.style.transform = 'scale(1)';
             }
+            this.ensureFitButtons();
+            this.setFitMode('contain', false); // ★描画は下の loadExerciseProblem に任せる
             this.loadExerciseProblem();
         },
+
 
         loadExerciseProblem() {
             AppState.shouldShuffleOptions = true; 
@@ -1098,6 +1130,70 @@ document.addEventListener('DOMContentLoaded', () => {
             CanvasManager.loadImageFromQuizData(currentQuiz, DOM.imageCanvasExercise);
             this.updateTrainingPointsDisplay();
         },
+
+                // ★追加：ズームスライダーの隣に表示モードボタンを生成
+        ensureFitButtons() {
+            if (document.getElementById('fitModeButtons')) return this.highlightFitButtons();
+            const anchor = DOM.zoomSlider?.parentElement || DOM.imageContainerWrapperExercise;
+            if (!anchor) return;
+            const box = document.createElement('div');
+            box.id = 'fitModeButtons';
+            box.className = 'inline-flex flex-wrap gap-1 ml-2';
+            box.innerHTML = `<button type="button" data-fit="contain" class="fit-btn px-2 py-1 text-xs rounded border border-gray-300 bg-white hover:bg-gray-100">🖼️ 全体</button>`
+                + `<button type="button" data-fit="height" class="fit-btn px-2 py-1 text-xs rounded border border-gray-300 bg-white hover:bg-gray-100">↕️ 縦いっぱい</button>`
+                + `<button type="button" data-fit="width" class="fit-btn px-2 py-1 text-xs rounded border border-gray-300 bg-white hover:bg-gray-100">↔️ 横いっぱい</button>`;
+            anchor.appendChild(box);
+            box.addEventListener('click', e => {
+                const btn = e.target.closest('.fit-btn');
+                if (btn) ExerciseModeManager.setFitMode(btn.dataset.fit);
+            });
+            this.highlightFitButtons();
+        },
+
+        highlightFitButtons() {
+            const mode = AppState.exerciseFitMode || 'contain';
+            document.querySelectorAll('#fitModeButtons .fit-btn').forEach(b => {
+                const on = b.dataset.fit === mode;
+                b.classList.toggle('bg-blue-600', on);
+                b.classList.toggle('text-white', on);
+                b.classList.toggle('bg-white', !on);
+            });
+        },
+
+        setFitMode(mode, redraw = true) {
+            AppState.exerciseFitMode = mode || 'contain';
+            this.highlightFitButtons();
+            if (DOM.zoomSlider) {
+                DOM.zoomSlider.value = 1;
+                DOM.zoomValue.textContent = '1.0x';
+                DOM.imageDisplayAreaExercise.style.transform = 'scale(1)';
+            }
+            if (!redraw) return;
+            const quiz = AppState.getCurrentExerciseQuiz();
+            if (!quiz) return;
+            if (quiz.originalImage?.complete) CanvasManager.setupCanvas(quiz.originalImage, DOM.imageCanvasExercise);
+            else CanvasManager.loadImageFromQuizData(quiz, DOM.imageCanvasExercise);
+        },
+
+        // ★追加：選択肢／入力欄が画面外なら最小限だけ自動スクロール
+        ensureOptionsVisible() {
+            requestAnimationFrame(() => {
+                const opts = DOM.optionsContainerExercise;
+                const input = DOM.exerciseTextInputContainer;
+                const isVisible = el => {
+                    if (!el) return true;
+                    const r = el.getBoundingClientRect();
+                    if (r.height === 0) return true;
+                    return r.top >= 0 && r.bottom <= window.innerHeight;
+                };
+                if (isVisible(opts) && isVisible(input)) return;
+                (opts || input)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                setTimeout(() => {
+                    if (!isVisible(input)) input?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 400);
+            });
+        },
+
 
         initializeTextInputContainer() {
             if (!DOM.exerciseTextInputContainer || AppState.isMobileMode) {
@@ -1252,7 +1348,9 @@ document.addEventListener('DOMContentLoaded', () => {
             DOM.exerciseTextInputContainer.appendChild(inputContainer);
             this.setupTextInputEvents(inputContainer, maskId);
             this.highlightMask(dropZoneElement);
-            setTimeout(() => inputContainer.querySelector('input')?.focus(), 100);
+                        setTimeout(() => inputContainer.querySelector('input')?.focus(), 100);
+            this.ensureOptionsVisible(); // ★選択肢が画面外なら自動スクロール
+
         },
 
         createTextInputContainer() {
@@ -1649,6 +1747,16 @@ document.addEventListener('DOMContentLoaded', () => {
             document.addEventListener('mousemove', e => { CreationModeManager.handleMouseMove(e); PanZoomManager.handlePanMove(e); });
             document.addEventListener('mouseup', e => { CreationModeManager.handleMouseUp(e); PanZoomManager.handlePanEnd(e); });
             DOM.zoomSlider?.addEventListener('input', PanZoomManager.handleZoom);
+                        let _fitResizeTimer = null;
+            window.addEventListener('resize', () => {
+                clearTimeout(_fitResizeTimer);
+                _fitResizeTimer = setTimeout(() => {
+                    if (AppState.currentMode !== 'exercise') return;
+                    const q = AppState.getCurrentExerciseQuiz();
+                    if (q?.originalImage?.complete) CanvasManager.setupCanvas(q.originalImage, DOM.imageCanvasExercise);
+                }, 200);
+            });
+
             const exerciseContainer = DOM.imageContainerWrapperExercise;
             if(exerciseContainer) {
                 exerciseContainer.addEventListener('mousedown', PanZoomManager.handlePanStart);
