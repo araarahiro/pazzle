@@ -1111,6 +1111,24 @@ document.addEventListener('DOMContentLoaded', () => {
             this.loadExerciseProblem();
         },
 
+        // ★追加：マスクを読み順（上の行から、行内は左から右）に並べる
+        sortMasksInReadingOrder(masks) {
+            const rows = [];
+            [...masks].sort((a, b) => a.rect.y - b.rect.y).forEach(m => {
+                const cy = m.rect.y + m.rect.height / 2;
+                const row = rows.find(r => cy >= r.top && cy <= r.bottom);
+                if (row) {
+                    row.items.push(m);
+                    row.top = Math.min(row.top, m.rect.y);
+                    row.bottom = Math.max(row.bottom, m.rect.y + m.rect.height);
+                } else {
+                    rows.push({ top: m.rect.y, bottom: m.rect.y + m.rect.height, items: [m] });
+                }
+            });
+            rows.forEach(r => r.items.sort((a, b) => a.rect.x - b.rect.x));
+            return rows.flatMap(r => r.items);
+        },
+
 
         loadExerciseProblem() {
             AppState.shouldShuffleOptions = true; 
@@ -1126,7 +1144,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             
+          　currentQuiz.problemData = this.sortMasksInReadingOrder(currentQuiz.problemData); // ★読み順に並べ替え
             currentQuiz.problemData.forEach(mask => mask.isAnswered = false);
+
             this.initializeTextInputContainer(); // PCモード用のUIを初期化
             CanvasManager.loadImageFromQuizData(currentQuiz, DOM.imageCanvasExercise);
             this.updateTrainingPointsDisplay();
@@ -1656,13 +1676,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (AppState.isMobileMode) return;
 
             setTimeout(() => {
-                               const zones = DOM.dropZoneContainerExercise;
-                const last = lastMaskId ? quiz.problemData.find(m => m.id === lastMaskId) : null;
+               const zones = DOM.dropZoneContainerExercise;
                 let zone = (!wasCorrect && lastMaskId)
                     ? zones.querySelector(`[data-mask-id="${lastMaskId}"]`)
                     : null;
                 if (!zone) {
-                    const next = this.getNextMaskAfter(quiz, last);
+                    const next = quiz.problemData.find(m => !m.isAnswered
+                        && (AppState.isFirstRound || (m.trainingPoints || 0) > 0));
                     zone = next ? zones.querySelector(`[data-mask-id="${next.id}"]`) : null;
                 }
                 zone?.click();
