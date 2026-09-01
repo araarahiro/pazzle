@@ -1121,9 +1121,10 @@ document.addEventListener('DOMContentLoaded', () => {
             UIManager.updateExerciseNavigation();
             
             const remainingTrainingPoints = currentQuiz.problemData.some(mask => (mask.trainingPoints || 0) > 0);
-            if (!AppState.isFirstRound && !remainingTrainingPoints) {
-                return UIManager.showSpectacularClearAnimation(false);
+                       if (!AppState.isFirstRound && !remainingTrainingPoints) {
+                return this.moveToNextProblemOrEndRound(); // この問題は鍛錬不要なので次へ
             }
+
             
             currentQuiz.problemData.forEach(mask => mask.isAnswered = false);
             this.initializeTextInputContainer(); // PCモード用のUIを初期化
@@ -1231,13 +1232,10 @@ document.addEventListener('DOMContentLoaded', () => {
             this.shuffleAndDisplayOptions(unansweredMasks, container);
         },
 
-        handleNoOptionsAvailable(quiz) {
-            if (!AppState.isFirstRound && quiz.problemData.some(m => (m.trainingPoints || 0) > 0)) {
-                DOM.optionsContainerExercise.innerHTML = '<p class="text-blue-600 text-center font-semibold p-4">🔄 鍛錬継続中...</p>';
-            } else {
-                UIManager.showSpectacularClearAnimation(false);
-            }
+                handleNoOptionsAvailable(quiz) {
+            DOM.optionsContainerExercise.innerHTML = '<p class="text-blue-600 text-center font-semibold p-4">🔄 判定中...</p>';
         },
+
         
         shuffleAndDisplayOptions(unansweredMasks, container) {
             if (AppState.shouldShuffleOptions) {
@@ -1310,11 +1308,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return el;
         },
 
-        checkClearCondition(dropZoneCount, quiz) {
-            if (dropZoneCount === 0 && !AppState.isFirstRound && !quiz.problemData.some(m => (m.trainingPoints || 0) > 0)) {
-                setTimeout(() => UIManager.showSpectacularClearAnimation(false), 100);
-            }
+                checkClearCondition(dropZoneCount, quiz) {
+            // 進行判定は updateScreenAfterAnswer / moveToNextProblemOrEndRound に一本化
         },
+
 
         updateTrainingPointsDisplay() {
             const quiz = AppState.getCurrentExerciseQuiz();
@@ -1458,17 +1455,17 @@ document.addEventListener('DOMContentLoaded', () => {
             'つぎ', '次', 'ヒント', 'むり', '無理', 'おてあげ', 'お手上げ'
         ],
 
-        isPassWord(answer) {
+               isPassWord(answer) {
             const a = Utils.normalizeForCompare(answer);
-            if (!a || a.length > 12) return false;   // 長い発話はパス扱いしない
+            if (!a || a.length > 8) return false;
             return this.PASS_WORDS.some(w => {
                 const b = Utils.normalizeForCompare(w);
                 if (!b) return false;
                 if (a === b) return true;
-                if (b.length >= 2 && a.includes(b)) return true;
-                return b.length >= 3 && Utils.levenshtein(a, b) <= 1;
+                return b.length >= 4 && a.length >= 4 && Utils.levenshtein(a, b) <= 1;
             });
         },
+
 
 
         // ★追加：パス時の処理（不正解と同じ扱い＋答えの表示）
@@ -1597,12 +1594,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
-                updateScreenAfterAnswer(quiz, wasCorrect = true, lastMaskId = null) {
+                       // ★追加：現在のラウンドで解答対象になっているマスク
+        getActiveMasks(quiz) {
+            if (!quiz?.problemData) return [];
+            return AppState.isFirstRound
+                ? quiz.problemData.filter(m => !m.isAnswered)
+                : quiz.problemData.filter(m => !m.isAnswered && (m.trainingPoints || 0) > 0);
+        },
+
+        updateScreenAfterAnswer(quiz, wasCorrect = true, lastMaskId = null) {
             CanvasManager.redrawCanvas(DOM.imageCanvasExercise);
             this.setupDropZones();
             this.setupExerciseOptions();
 
-            if (quiz.problemData.every(m => m.isAnswered)) {
+            const active = this.getActiveMasks(quiz);
+            if (active.length === 0) {
                 this.moveToNextProblemOrEndRound();
                 return;
             }
@@ -1614,35 +1620,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 let zone = (!wasCorrect && lastMaskId)
                     ? zones.querySelector(`[data-mask-id="${lastMaskId}"]`)
                     : null;
-                if (!zone) {
-                    const nextMask = quiz.problemData.find(m => !m.isAnswered);
-                    zone = nextMask ? zones.querySelector(`[data-mask-id="${nextMask.id}"]`) : null;
-                }
+                if (!zone) zone = zones.querySelector(`[data-mask-id="${active[0].id}"]`);
                 zone?.click();
             }, 300);
         },
 
 
-        moveToNextProblemOrEndRound() {
+
+               moveToNextProblemOrEndRound() {
             if (AppState.currentProblemIndexExercise < AppState.exerciseData.length - 1) {
                 AppState.currentProblemIndexExercise++;
                 this.loadExerciseProblem();
-            } else {
-                if (AppState.isFirstRound) {
-                    AppState.isFirstRound = false;
-                    AppState.exerciseRound = 2;
-                    AppState.currentProblemIndexExercise = 0;
-                    if (AppState.exerciseData.some(q => q.problemData.some(m => (m.trainingPoints || 0) > 0))) {
-                        Utils.updateMessage('一巡目完了！鍛錬モードに移行します。', 'info');
-                        this.loadExerciseProblem();
-                    } else {
-                        UIManager.showSpectacularClearAnimation(true);
-                    }
-                } else {
-                    UIManager.showSpectacularClearAnimation(true);
-                }
+                return;
             }
-        }
+            // 最後の問題まで来た。鍛錬ポイントが残っていれば何周でも繰り返す
+            const remain = AppState.exerciseData.reduce((sum, q) =>
+                sum + q.problemData.reduce((s, m) => s + (m.trainingPoints || 0), 0), 0);
+            if (remain === 0) return UIManager.showSpectacularClearAnimation(true);
+
+            AppState.isFirstRound = false;
+            AppState.exerciseRound++;
+            AppState.currentProblemIndexExercise = 0;
+            Utils.updateMessage(`🔥 ${AppState.exerciseRound}周目の鍛錬を開始します（残り鍛錬ポイント ${remain}）`, 'info');
+            this.loadExerciseProblem();
+        },
+
     };
     
     // --- 9. PanZoomManager and SpeechManager (変更なし) ---
