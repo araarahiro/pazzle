@@ -1175,44 +1175,44 @@ document.addEventListener('DOMContentLoaded', () => {
             else CanvasManager.loadImageFromQuizData(quiz, DOM.imageCanvasExercise);
         },
 
-               // ★追加：解答中のマスクと入力欄が画面に入るようにスクロールする
+                       // ★解答中のマスクと入力欄を画面内に入れる（スクロール量を自前で計算）
         scrollAnsweringAreaIntoView(dropZoneElement) {
             const zone = dropZoneElement
                 || DOM.dropZoneContainerExercise?.querySelector(`[data-mask-id="${AppState.currentAnsweringMaskId}"]`);
-            if (!zone) return;
+            if (!zone) return console.warn('[scroll] マスク要素が見つかりません');
 
             requestAnimationFrame(() => {
                 const wrapper = DOM.imageContainerWrapperExercise;
-                const z = zone.getBoundingClientRect();
-                let dx = 0, dy = 0;
 
-                // ① 画像コンテナ内部のスクロール（縦いっぱい・拡大時にはみ出した分を寄せる）
+                // ① 画像コンテナの内部スクロール：マスクが枠の中央に来るように寄せる
                 if (wrapper) {
+                    wrapper.style.scrollBehavior = 'auto';
+                    const z = zone.getBoundingClientRect();
                     const w = wrapper.getBoundingClientRect();
-                    const m = 24;
-                    if (z.left < w.left + m) dx = z.left - (w.left + m);
-                    else if (z.right > w.right - m) dx = z.right - (w.right - m);
-                    if (z.top < w.top + m) dy = z.top - (w.top + m);
-                    else if (z.bottom > w.bottom - m) dy = z.bottom - (w.bottom - m);
-                    // 実際にスクロールできる範囲に丸める
-                    dx = Math.max(-wrapper.scrollLeft, Math.min(dx, wrapper.scrollWidth - wrapper.clientWidth - wrapper.scrollLeft));
-                    dy = Math.max(-wrapper.scrollTop, Math.min(dy, wrapper.scrollHeight - wrapper.clientHeight - wrapper.scrollTop));
-                    if (dx || dy) wrapper.scrollTo({ left: wrapper.scrollLeft + dx, top: wrapper.scrollTop + dy, behavior: 'smooth' });
+                    const dx = (z.left + z.width / 2) - (w.left + w.width / 2);
+                    const dy = (z.top + z.height / 2) - (w.top + w.height / 2);
+                    const maxX = wrapper.scrollWidth - wrapper.clientWidth;
+                    const maxY = wrapper.scrollHeight - wrapper.clientHeight;
+                    wrapper.scrollLeft = Math.max(0, Math.min(maxX, wrapper.scrollLeft + dx));
+                    wrapper.scrollTop = Math.max(0, Math.min(maxY, wrapper.scrollTop + dy));
+                    console.log('[scroll] 内部', { dx: Math.round(dx), dy: Math.round(dy), maxY, now: wrapper.scrollTop });
                 }
 
-                // ② ページ全体のスクロール（マスクと入力欄の両方を画面内に）
-                const zTop = z.top - dy;                 // ①の移動後を見込んだ位置
-                const zBottom = z.bottom - dy;
+                // ② ページ全体：マスクと入力欄の両方が画面に入るように寄せる
+                const z2 = zone.getBoundingClientRect();
                 const i = DOM.exerciseTextInputContainer?.getBoundingClientRect();
-                const top = i && i.height > 0 ? Math.min(zTop, i.top) : zTop;
-                const bottom = i && i.height > 0 ? Math.max(zBottom, i.bottom) : zBottom;
+                const hasInput = i && i.height > 0;
+                const top = hasInput ? Math.min(z2.top, i.top) : z2.top;
+                const bottom = hasInput ? Math.max(z2.bottom, i.bottom) : z2.bottom;
                 const vh = window.innerHeight;
-                let delta = 0;
-                if (top < 8) delta = top - 8;                                   // 上に隠れている
-                else if (bottom > vh - 8) delta = Math.min(bottom - (vh - 8), top - 8); // 下に隠れている
-                if (Math.abs(delta) > 4) window.scrollBy({ top: delta, behavior: 'smooth' });
+                let d = 0;
+                if (top < 8) d = top - 8;
+                else if (bottom > vh - 8) d = Math.min(bottom - (vh - 8), Math.max(0, top - 8));
+                console.log('[scroll] ページ', { top: Math.round(top), bottom: Math.round(bottom), vh, d: Math.round(d) });
+                if (Math.abs(d) > 4) window.scrollBy({ top: d, behavior: 'smooth' });
             });
         },
+
 
         // ★追加：解答中のマスクと入力欄を画面内に入れる
         scrollAnsweringAreaIntoView(dropZoneElement) {
