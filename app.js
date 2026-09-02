@@ -948,6 +948,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const rect = AppState.currentSelectionRect;   // ★promptより前に必ず捕まえる
            AppState.suppressNextCanvasClick = true;   // 作成直後のclickで一括設定が走るのを防ぐ
 
+            setTimeout(() => { AppState.suppressNextCanvasClick = false; }, 400); // ★フラグが残り続けないように自動解除
+
+
             if (!rect) return;
 
             const quizBook = AppState.getCurrentQuizBook();
