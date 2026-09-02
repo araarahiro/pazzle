@@ -2008,7 +2008,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handleExerciseProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); else Utils.updateMessage('この問題にはマスクがありません。', 'error'); },
         async handleRetryProblem() { const book = AppState.masterQuizList.find(b => b.id === AppState.currentQuizBookId); if(!book) return; book.quizzes.forEach(q => { if (AppState.originalExerciseProblems.some(o => o.id === q.id)) q.problemData.forEach(m => { m.trainingPoints = 0; m.history = []; }); }); await DBManager.updateQuizBook(book); await DBManager.loadAllQuizBooks(); const newSet = AppState.getCurrentQuizBook().quizzes.filter(q => AppState.originalExerciseProblems.some(o => o.id === q.id)); ExerciseModeManager.startExerciseMode(newSet); Utils.updateMessage('鍛錬ポイントをリセットしました。', 'info'); },
                         handleStartFilteredExerciseInSession() {
-            const levels = Array.from(document.querySelectorAll('.importance-filter-cb-exercise:checked')).map(cb => this.importanceLevel(cb.value));
+            const levels = Array.from(document.querySelectorAll('.importance-filter-cb-exercise:checked')).map(cb => EventManager.importanceLevel (cb.value));
             if (levels.length === 0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info');
 
             const source = AppState.exerciseMasterProblems || AppState.originalExerciseProblems || [];
@@ -2016,12 +2016,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const master = JSON.parse(JSON.stringify(source)); // 原本を退避
 
             const fP = JSON.parse(JSON.stringify(master)).map(q => {
-                q.problemData = (q.problemData || []).filter(m => levels.includes(this.importanceLevel(m.importance)));
+                q.problemData = (q.problemData || []).filter(m => levels.includes(EventManager.importanceLevel (m.importance)));
                 return q;
             }).filter(q => q.problemData.length > 0);
 
             if (fP.length === 0) {
-                const all = [...new Set(master.flatMap(q => (q.problemData || []).map(m => this.importanceLevel(m.importance))))].sort();
+                const all = [...new Set(master.flatMap(q => (q.problemData || []).map(m => EventManager.importanceLevel (m.importance))))].sort();
                 return Utils.updateMessage(`該当マスクがありません（この演習に含まれる重要度: ${all.map(n => '☆'.repeat(n)).join('・') || 'なし'}）`, 'info');
             }
 
@@ -2045,13 +2045,13 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         handleStartFilteredExercise() {
-            const levels = Array.from(document.querySelectorAll('.importance-filter-cb:checked')).map(cb => this.importanceLevel(cb.value));
+            const levels = Array.from(document.querySelectorAll('.importance-filter-cb:checked')).map(cb => EventManager.importanceLevel (cb.value));
             if (levels.length === 0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info');
             const qB = AppState.getCurrentQuizBook();
             if (!qB) return Utils.updateMessage('問題集が選択されていません。', 'error');
             const fP = (qB.quizzes || []).map(q => {
                 const fQ = JSON.parse(JSON.stringify(q));
-                fQ.problemData = (fQ.problemData || []).filter(m => levels.includes(this.importanceLevel(m.importance)));
+                fQ.problemData = (fQ.problemData || []).filter(m => levels.includes(EventManager.importanceLevel (m.importance)));
                 return fQ;
             }).filter(q => q.problemData.length > 0);
             if (fP.length > 0) UIManager.switchToMode('exercise', { problems: fP });
