@@ -2007,7 +2007,7 @@ document.addEventListener('DOMContentLoaded', () => {
         async handleConfirmMove() { const { sourceBookId, quizId } = AppState.problemToAction; const targetBookId = DOM.targetQuizBookSelect.value; if(sourceBookId === targetBookId) return Utils.updateMessage('同じ問題集には移動できません。', 'error'); const sB = AppState.masterQuizList.find(b => b.id === sourceBookId); const tB = AppState.masterQuizList.find(b => b.id === targetBookId); const qIdx = sB?.quizzes.findIndex(q => q.id === quizId); if(!sB || !tB || qIdx === -1) return; const [q] = sB.quizzes.splice(qIdx, 1); tB.quizzes.push(q); await Promise.all([DBManager.updateQuizBook(sB), DBManager.updateQuizBook(tB)]); await DBManager.loadAllQuizBooks(); UIManager.refreshProblemList(); UIManager.toggleProblemActionModal(false); Utils.updateMessage(`「${q.title}」を「${tB.name}」に移動しました。`, 'success'); },
         handleExerciseProblem(quizId) { const q = AppState.getCurrentQuizBook()?.quizzes.find(q => q.id === quizId); if(q?.problemData?.length) UIManager.switchToMode('exercise', { problems: [q] }); else Utils.updateMessage('この問題にはマスクがありません。', 'error'); },
         async handleRetryProblem() { const book = AppState.masterQuizList.find(b => b.id === AppState.currentQuizBookId); if(!book) return; book.quizzes.forEach(q => { if (AppState.originalExerciseProblems.some(o => o.id === q.id)) q.problemData.forEach(m => { m.trainingPoints = 0; m.history = []; }); }); await DBManager.updateQuizBook(book); await DBManager.loadAllQuizBooks(); const newSet = AppState.getCurrentQuizBook().quizzes.filter(q => AppState.originalExerciseProblems.some(o => o.id === q.id)); ExerciseModeManager.startExerciseMode(newSet); Utils.updateMessage('鍛錬ポイントをリセットしました。', 'info'); },
-                handleStartFilteredExerciseInSession() {
+                        handleStartFilteredExerciseInSession() {
             const levels = Array.from(document.querySelectorAll('.importance-filter-cb-exercise:checked')).map(cb => this.importanceLevel(cb.value));
             if (levels.length === 0) return Utils.updateMessage('重要度を1つ以上選択してください。', 'info');
 
@@ -2029,6 +2029,7 @@ document.addEventListener('DOMContentLoaded', () => {
             AppState.exerciseMasterProblems = master; // startExerciseMode で上書きされた原本を復元
             Utils.updateMessage(`重要度 ${levels.map(n => '☆'.repeat(n)).join('・')} で絞り込みました（${fP.reduce((s, q) => s + q.problemData.length, 0)}マスク）`, 'success');
         },
+
 
         handleSetImportance(target) { AppState.importanceSelectMode = true; AppState.isGroupSelectMode = false; AppState.selectedImportance = target.dataset.importance; Utils.updateMessage(`重要度「${target.dataset.importance}」を選択中。マスクをクリックして設定。`, 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); target.classList.add('bg-blue-500', 'text-white'); },
         handleCancelImportanceMode() { AppState.importanceSelectMode = false; Utils.updateMessage('重要度一括設定を解除しました。', 'info'); document.querySelectorAll('.importance-setter-btn').forEach(b => b.classList.remove('bg-blue-500', 'text-white')); },
