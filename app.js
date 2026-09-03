@@ -1535,6 +1535,7 @@ document.addEventListener('DOMContentLoaded', () => {
         offerAliasRegistration(userAnswer, targetMask, quizBook, quizInDb) {
                         console.log('[alias] 呼ばれた:', JSON.stringify(userAnswer));
 
+
             const raw = String(userAnswer || '').trim();
             if (!raw || raw.startsWith('maskid:') || raw.length > 40) return;
             document.getElementById('aliasToast')?.remove();
