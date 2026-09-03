@@ -1134,6 +1134,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return rows.flatMap(r => r.items);
         },
 
+        // ★追加：問題を開いたら一番上のマスクを解答状態にする（キーボード/音声で即入力できるように）
+        focusFirstMask(attempt = 0) {
+            if (AppState.isMobileMode) return;
+            const quiz = AppState.getCurrentExerciseQuiz();
+            const active = this.sortMasksInReadingOrder(this.getActiveMasks(quiz));
+            if (active.length === 0) return;
+            const zone = DOM.dropZoneContainerExercise?.querySelector(`[data-mask-id="${active[0].id}"]`);
+            if (zone) return this.showTextInputForMask(active[0].id, zone);
+            // 画像読み込み・ドロップゾーン生成が終わるまで少し待って再挑戦
+            if (attempt < 25) setTimeout(() => this.focusFirstMask(attempt + 1), 100);
+        },
 
         loadExerciseProblem() {
             AppState.shouldShuffleOptions = true; 
@@ -1155,6 +1166,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.initializeTextInputContainer(); // PCモード用のUIを初期化
             CanvasManager.loadImageFromQuizData(currentQuiz, DOM.imageCanvasExercise);
             this.updateTrainingPointsDisplay();
+                  this.focusFirstMask(); // ★一番上のマスクを自動選択
         },
 
                 // ★追加：ズームスライダーの隣に表示モードボタンを生成
