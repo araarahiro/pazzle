@@ -1480,7 +1480,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             await this.processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb);
-              if (!isCorrect && !byDrag) this.offerAliasRegistration(answer, targetMask, quizBook, quizInDb); // ★別解の登録を提案
+                        if (!isCorrect && !byDrag) this.offerAliasRegistration(answer, targetMask, quizBook, quizInDb); // ★別解の登録を提案
+
 
             setTimeout(() => this.updateScreenAfterAnswer(quiz, isCorrect, targetMask.id), 300);
         },
