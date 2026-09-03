@@ -1480,6 +1480,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             await this.processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb);
+              if (!isCorrect && !byDrag) this.offerAliasRegistration(answer, targetMask, quizBook, quizInDb); // ★別解の登録を提案
+
             setTimeout(() => this.updateScreenAfterAnswer(quiz, isCorrect, targetMask.id), 300);
         },
 
@@ -1528,6 +1530,43 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         // ★追加：マスクの位置に答えのラベルを一定時間表示する
+                // ★追加：不正解だった入力を「別の正解」として登録できるボタンを出す
+        offerAliasRegistration(userAnswer, targetMask, quizBook, quizInDb) {
+            const raw = String(userAnswer || '').trim();
+            if (!raw || raw.startsWith('maskid:') || raw.length > 40) return;
+            document.getElementById('aliasToast')?.remove();
+
+            const box = document.createElement('div');
+            box.id = 'aliasToast';
+            box.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:9998; max-width:340px; background:#fff; border:2px solid #f59e0b; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25); padding:10px 12px; font-size:13px;';
+            box.innerHTML = `<div style="margin-bottom:8px;">正解「<b>${targetMask.text || '(なし)'}</b>」<br>あなたの入力「<b>${raw}</b>」</div>`
+                + `<div style="display:flex; gap:6px;">`
+                + `<button id="aliasAddBtn" style="flex:1; padding:6px; background:#16a34a; color:#fff; border-radius:6px;">これも正解に追加</button>`
+                + `<button id="aliasCloseBtn" style="padding:6px 10px; background:#9ca3af; color:#fff; border-radius:6px;">閉じる</button>`
+                + `</div>`;
+            document.body.appendChild(box);
+
+            const close = () => box.remove();
+            box.querySelector('#aliasCloseBtn').addEventListener('click', close);
+            box.querySelector('#aliasAddBtn').addEventListener('click', async () => {
+                const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
+                if (dbMask) {
+                    dbMask.aliases = [...new Set([...(dbMask.aliases || []), raw])];
+                    dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 2); // 誤判定分の加点を戻す
+                    const h = [...(dbMask.history || [])];
+                    if (h[h.length - 1] === '×') h[h.length - 1] = '〇';
+                    dbMask.history = h;
+                }
+                targetMask.aliases = [...new Set([...(targetMask.aliases || []), raw])];
+                targetMask.trainingPoints = dbMask?.trainingPoints ?? targetMask.trainingPoints;
+                if (quizBook) await DBManager.updateQuizBook(quizBook);
+                Utils.updateMessage(`「${raw}」も正解に登録しました。もう一度同じように答えると正解になります。`, 'success');
+                close();
+            });
+
+            setTimeout(() => box.remove(), 20000);
+        },
+
         showPassReveal(mask) {
             const canvas = DOM.imageCanvasExercise;
             const area = DOM.imageDisplayAreaExercise;
@@ -1575,7 +1614,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // ② テキスト／音声：あいまい一致
             const TOLERANCE = 0.25;
-            const hit = (mask) => Utils.looseMatch(raw, mask.text, TOLERANCE);
+            const hit = (mask) => Utils.looseMatch(raw, [mask.text, ...(mask.aliases || [])].join('／'), TOLERANCE);
+
 
             if (hit(targetMask)) return { answerMask: targetMask, isCorrect: true, byDrag: false };
 
