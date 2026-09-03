@@ -1533,6 +1533,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // ★追加：マスクの位置に答えのラベルを一定時間表示する
                 // ★追加：不正解だった入力を「別の正解」として登録できるボタンを出す
         offerAliasRegistration(userAnswer, targetMask, quizBook, quizInDb) {
+                        console.log('[alias] 呼ばれた:', JSON.stringify(userAnswer));
+
             const raw = String(userAnswer || '').trim();
             if (!raw || raw.startsWith('maskid:') || raw.length > 40) return;
             document.getElementById('aliasToast')?.remove();
