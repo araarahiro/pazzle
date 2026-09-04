@@ -1161,7 +1161,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             
           　currentQuiz.problemData = this.sortMasksInReadingOrder(currentQuiz.problemData); // ★読み順に並べ替え
-            currentQuiz.problemData.forEach(mask => mask.isAnswered = false);
+                        currentQuiz.problemData.forEach(mask => { mask.isAnswered = false; mask.missedThisRound = false; });
+            currentQuiz.redoRound = 1;
+
 
             this.initializeTextInputContainer(); // PCモード用のUIを初期化
             CanvasManager.loadImageFromQuizData(currentQuiz, DOM.imageCanvasExercise);
@@ -1512,11 +1514,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // ★追加：パス時の処理（不正解と同じ扱い＋答えの表示）
         async processPass(targetMask, quizBook, quizInDb, quiz) {
-            const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
-            if (dbMask) {
+                        const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
+            const firstMiss = !targetMask.missedThisRound;
+            if (dbMask && firstMiss) {
                 dbMask.history = [...(dbMask.history || []), '×'].slice(-10);
                 dbMask.trainingPoints = (dbMask.trainingPoints || 0) + 2;
             }
+            targetMask.missedThisRound = true;
+
             targetMask.trainingPoints = dbMask?.trainingPoints || 0;
             targetMask.isAnswered = true;
 
@@ -1634,36 +1639,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-                       async processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb) {
-            // ★グループ内の別マスクの答えを入れた場合は、その答えのマスク側を解答済みにする
+                               async processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb) {
             const scored = (isCorrect && answerMask && !answerMask.isAnswered) ? answerMask : targetMask;
             const dbMask = quizInDb?.problemData.find(m => m.id === scored.id);
 
             if (isCorrect) {
+                const missed = !!scored.missedThisRound;
                 if (dbMask) {
                     dbMask.history = [...(dbMask.history || []), '〇'].slice(-10);
-                    dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 1);
+                    dbMask.trainingPoints = missed ? Math.max(0, (dbMask.trainingPoints || 0) - 1) : 0;
                 }
                 scored.trainingPoints = dbMask?.trainingPoints ?? 0;
                 scored.isAnswered = true;
                 const note = scored.id === targetMask.id ? '' : `（「${scored.text}」のマスクを外しました）`;
-                Utils.updateMessage(`✅ 正解！ 鍛錬ポイント-1 (残り${scored.trainingPoints})${note}`, 'success');
+                Utils.updateMessage(`✅ 正解！ (鍛錬ポイント ${scored.trainingPoints})${note}`, 'success');
                 UIManager.showAnimation(scored.id, 'correct');
                 try { new Audio('sounds/correct.mp3').play().catch(() => {}); } catch (e) {}
                 this.clearTextInput();
             } else {
-                if (dbMask) {
+                const firstMiss = !targetMask.missedThisRound;
+                if (dbMask && firstMiss) {
                     dbMask.history = [...(dbMask.history || []), '×'].slice(-10);
                     dbMask.trainingPoints = (dbMask.trainingPoints || 0) + 2;
                 }
+                targetMask.missedThisRound = true;
                 targetMask.trainingPoints = dbMask?.trainingPoints ?? 0;
-                Utils.updateMessage(`❌ 不正解！ 鍛錬ポイント+2 (現在${targetMask.trainingPoints})`, 'error');
+                Utils.updateMessage(`❌ 不正解！ (鍛錬ポイント ${targetMask.trainingPoints})`, 'error');
                 UIManager.showAnimation(targetMask.id, 'incorrect');
                 this.clearTextInput(true);
             }
 
             if (quizBook) await DBManager.updateQuizBook(quizBook);
         },
+
 
 
         clearTextInput(shake = false) {
@@ -1733,11 +1741,28 @@ document.addEventListener('DOMContentLoaded', () => {
             this.setupDropZones();
             this.setupExerciseOptions();
 
-            const active = this.getActiveMasks(quiz);
+             const active = this.getActiveMasks(quiz);
             if (active.length === 0) {
+                // ★この周で間違えたマスクだけを、もう一周この問題内で出す
+                const redo = quiz.problemData.filter(m => m.missedThisRound);
+                if (redo.length > 0) {
+                    const round = (quiz.redoRound || 1) + 1;
+                    quiz.redoRound = round;
+                    Utils.updateMessage(`🔥 ${round}周目：間違えた ${redo.length} 問をやり直します`, 'info');
+                    setTimeout(() => {
+                        redo.forEach(m => { m.isAnswered = false; m.missedThisRound = false; });
+                        CanvasManager.redrawCanvas(DOM.imageCanvasExercise);
+                        this.setupDropZones();
+                        this.setupExerciseOptions();
+                        if (!AppState.isMobileMode) this.focusFirstMask();
+                        Utils.updateMessage(`🔥 ${round}周目：残り ${redo.length} 問`, 'info');
+                    }, 1200);
+                    return;
+                }
                 this.moveToNextProblemOrEndRound();
                 return;
             }
+
             this.updateTrainingPointsDisplay();
             if (AppState.isMobileMode) return;
 
