@@ -1624,7 +1624,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (hit(targetMask)) return { answerMask: targetMask, isCorrect: true, byDrag: false };
 
             if (targetMask.groupId) {
-                const groupMask = quiz.problemData.find(m => m.groupId === targetMask.groupId && hit(m));
+                            const groupMask = quiz.problemData.find(m => !m.isAnswered && String(m.groupId ?? '') === String(targetMask.groupId) && hit(m));
+
                 if (groupMask) return { answerMask: groupMask, isCorrect: true, byDrag: false };
             }
             const otherMask = quiz.problemData.find(m => hit(m));
@@ -1633,18 +1634,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-                async processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb) {
-            const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
+                       async processAnswerResult(isCorrect, targetMask, answerMask, quizBook, quizInDb) {
+            // ★グループ内の別マスクの答えを入れた場合は、その答えのマスク側を解答済みにする
+            const scored = (isCorrect && answerMask && !answerMask.isAnswered) ? answerMask : targetMask;
+            const dbMask = quizInDb?.problemData.find(m => m.id === scored.id);
 
             if (isCorrect) {
                 if (dbMask) {
                     dbMask.history = [...(dbMask.history || []), '〇'].slice(-10);
                     dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 1);
                 }
-                targetMask.trainingPoints = dbMask?.trainingPoints ?? 0;
-                targetMask.isAnswered = true;
-                Utils.updateMessage(`✅ 正解！ 鍛錬ポイント-1 (残り${targetMask.trainingPoints})`, 'success');
-                UIManager.showAnimation(targetMask.id, 'correct');
+                scored.trainingPoints = dbMask?.trainingPoints ?? 0;
+                scored.isAnswered = true;
+                const note = scored.id === targetMask.id ? '' : `（「${scored.text}」のマスクを外しました）`;
+                Utils.updateMessage(`✅ 正解！ 鍛錬ポイント-1 (残り${scored.trainingPoints})${note}`, 'success');
+                UIManager.showAnimation(scored.id, 'correct');
                 try { new Audio('sounds/correct.mp3').play().catch(() => {}); } catch (e) {}
                 this.clearTextInput();
             } else {
@@ -1660,6 +1664,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (quizBook) await DBManager.updateQuizBook(quizBook);
         },
+
 
         clearTextInput(shake = false) {
             if (AppState.currentAnsweringMaskId) {
