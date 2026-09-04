@@ -907,7 +907,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const CreationModeManager = {
         handleMouseDown(event) {
             if (AppState.currentMode !== 'creation') return;
+            if (AppState.isGroupSelectMode || AppState.importanceSelectMode) return;   // ★一括設定中はマスクを作らない
             const rect = DOM.imageCanvas.getBoundingClientRect();
+
             AppState.isSelecting = true;
             AppState.currentSelectionRect = { x: event.clientX - rect.left, y: event.clientY - rect.top, width: 0, height: 0 };
             DOM.selectionRectangle.style.display = 'block';
