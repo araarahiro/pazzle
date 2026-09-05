@@ -162,6 +162,74 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     // --- 4. Utility Functions (変更なし) ---
+        // --- 効果音（音声ファイル不要：Web Audio APIで合成） ---
+    const SoundManager = {
+        ctx: null,
+        enabled: true,
+
+        setup() {
+            const saved = localStorage.getItem('quizSoundEnabled');
+            this.enabled = (saved === null) ? true : (saved === 'true');
+            // ブラウザの自動再生制限対策：最初のユーザー操作で音声を有効化
+            const unlock = () => {
+                const ctx = this.ensureCtx();
+                if (ctx && ctx.state === 'suspended') ctx.resume();
+            };
+            document.addEventListener('pointerdown', unlock, { once: true });
+            document.addEventListener('keydown', unlock, { once: true });
+        },
+
+        ensureCtx() {
+            if (!this.ctx) {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (AC) this.ctx = new AC();
+            }
+            return this.ctx;
+        },
+
+        tone(freq, startAt, duration, type = 'sine', gain = 0.18) {
+            const ctx = this.ctx;
+            if (!ctx) return;
+            const t = ctx.currentTime + startAt;
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, t);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.linearRampToValueAtTime(gain, t + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+            osc.connect(g);
+            g.connect(ctx.destination);
+            osc.start(t);
+            osc.stop(t + duration + 0.03);
+        },
+
+        play(kind) {
+            if (!this.enabled) return;
+            const ctx = this.ensureCtx();
+            if (!ctx) return;
+            if (ctx.state === 'suspended') ctx.resume();
+            try {
+                if (kind === 'correct') {          // ファンファーレ（ド・ミ・ソ・ド）
+                    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
+                        this.tone(f, i * 0.09, 0.28, 'triangle', 0.17));
+                } else if (kind === 'incorrect') { // ブブッ（低い2音）
+                    this.tone(220, 0, 0.16, 'square', 0.11);
+                    this.tone(165, 0.13, 0.26, 'square', 0.11);
+                }
+            } catch (e) { console.warn('[sound]', e); }
+        },
+
+        toggle() {
+            this.enabled = !this.enabled;
+            localStorage.setItem('quizSoundEnabled', String(this.enabled));
+            Utils.updateMessage(this.enabled ? '🔊 効果音ON' : '🔇 効果音OFF', 'info');
+            if (this.enabled) this.play('correct');
+            return this.enabled;
+        }
+    };
+
+
     const Utils = {
         generateId: () => `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         
@@ -1528,6 +1596,8 @@ document.addEventListener('DOMContentLoaded', () => {
             targetMask.isAnswered = true;
 
             UIManager.showAnimation(targetMask.id, 'incorrect');
+                            SoundManager.play('incorrect');
+
             this.showPassReveal(targetMask);
             Utils.updateMessage(`⏭️ パス → 正解は「${targetMask.text || '(テキストなし)'}」 鍛錬ポイント+2 (現在${targetMask.trainingPoints})`, 'error');
 
@@ -1717,7 +1787,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const note = scored.id === targetMask.id ? '' : `（「${scored.text}」のマスクを外しました）`;
                 Utils.updateMessage(`✅ 正解！ (鍛錬ポイント ${scored.trainingPoints})${note}`, 'success');
                 UIManager.showAnimation(scored.id, 'correct');
-                try { new Audio('sounds/correct.mp3').play().catch(() => {}); } catch (e) {}
+                               SoundManager.play('correct');
+
                 this.clearTextInput();
             } else {
                 const firstMiss = !targetMask.missedThisRound;
@@ -1729,6 +1800,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 targetMask.trainingPoints = dbMask?.trainingPoints ?? 0;
                 Utils.updateMessage(`❌ 不正解！ (鍛錬ポイント ${targetMask.trainingPoints})`, 'error');
                 UIManager.showAnimation(targetMask.id, 'incorrect');
+                                SoundManager.play('incorrect');
+
+
                 this.clearTextInput(true);
             }
 
@@ -2219,7 +2293,9 @@ document.addEventListener('DOMContentLoaded', () => {
             await DBManager.loadAllQuizBooks();
             UIManager.initializeGroupButtons();
             EventManager.setup();
-            SpeechManager.setup();
+                  SpeechManager.setup();
+            SoundManager.setup();
+
             const style = document.createElement('style');
             style.textContent = `@keyframes confettiFall { 0% { transform: translateY(-20px); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } } @keyframes sparkleFloat { 0% { transform: translateY(0px) scale(0.5); opacity: 0; } 25% { transform: translateY(-20px) scale(1.2); opacity: 1; } 100% { transform: translateY(-40px) scale(0.3); opacity: 0; } }`;
             document.head.appendChild(style);
