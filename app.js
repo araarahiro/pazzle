@@ -1538,19 +1538,50 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         // ★追加：マスクの位置に答えのラベルを一定時間表示する
-                // ★追加：不正解だった入力を「別の正解」として登録できるボタンを出す
+                       // ★追加：不正解だった入力を「別の正解」として登録できるボタンを出す
         offerAliasRegistration(userAnswer, targetMask, quizBook, quizInDb) {
-                        console.log('[alias] 呼ばれた:', JSON.stringify(userAnswer));
-
-
             const raw = String(userAnswer || '').trim();
             if (!raw || raw.startsWith('maskid:') || raw.length > 40) return;
             document.getElementById('aliasToast')?.remove();
+
+            // 正解テキストの「先頭パート」だけを同一判定のキーにする
+            // 例：「黄河、こうが」→ キーは 黄河 のみ（読み仮名 こうが はキーにしない）
+            const keyOf = (text) => {
+                const head = String(text || '').split(/[、,／/｜|]/)[0];
+                const k = Utils.normalizeForCompare(head);
+                return (k && k.length >= 2) ? k : '';
+            };
+            const targetKey = keyOf(targetMask.text);
+
+            // 同じキーを持つ他のマスクを集める
+            const sameMasks = [];
+            if (targetKey) {
+                (AppState.masterQuizList || []).forEach(book => {
+                    (book.quizzes || []).forEach(q => {
+                        (q.problemData || []).forEach(m => {
+                            if (m.id !== targetMask.id && keyOf(m.text) === targetKey) {
+                                sameMasks.push({ book, mask: m });
+                            }
+                        });
+                    });
+                });
+            }
+            const sameCount = sameMasks.length;
+            const preview = sameMasks.slice(0, 3).map(x => x.mask.text).join('、')
+                + (sameCount > 3 ? ` ほか${sameCount - 3}件` : '');
+            const titleAttr = sameMasks.map(x => x.mask.text).join('\n').replace(/"/g, '');
 
             const box = document.createElement('div');
             box.id = 'aliasToast';
             box.style.cssText = 'position:fixed; right:16px; bottom:16px; z-index:9998; max-width:340px; background:#fff; border:2px solid #f59e0b; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25); padding:10px 12px; font-size:13px;';
             box.innerHTML = `<div style="margin-bottom:8px;">正解「<b>${targetMask.text || '(なし)'}</b>」<br>あなたの入力「<b>${raw}</b>」</div>`
+                + (sameCount > 0
+                    ? `<label title="${titleAttr}" style="display:block; margin-bottom:8px; font-size:12px; color:#374151; cursor:pointer;">`
+                      + `<input type="checkbox" id="aliasAllScope" checked style="margin-right:6px;">`
+                      + `同じ正解の他 ${sameCount} 箇所にも反映`
+                      + `<span style="display:block; color:#6b7280; margin-left:20px;">${preview}</span>`
+                      + `</label>`
+                    : '')
                 + `<div style="display:flex; gap:6px;">`
                 + `<button id="aliasAddBtn" style="flex:1; padding:6px; background:#16a34a; color:#fff; border-radius:6px;">これも正解に追加</button>`
                 + `<button id="aliasCloseBtn" style="padding:6px 10px; background:#9ca3af; color:#fff; border-radius:6px;">閉じる</button>`
@@ -1560,23 +1591,53 @@ document.addEventListener('DOMContentLoaded', () => {
             const close = () => box.remove();
             box.querySelector('#aliasCloseBtn').addEventListener('click', close);
             box.querySelector('#aliasAddBtn').addEventListener('click', async () => {
+                const applyAll = !!box.querySelector('#aliasAllScope')?.checked;
+
+                // ① 今回答えた穴に別解を登録し、誤判定分の加点・履歴を戻す
                 const dbMask = quizInDb?.problemData.find(m => m.id === targetMask.id);
                 if (dbMask) {
                     dbMask.aliases = [...new Set([...(dbMask.aliases || []), raw])];
-                    dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 2); // 誤判定分の加点を戻す
+                    dbMask.trainingPoints = Math.max(0, (dbMask.trainingPoints || 0) - 2);
                     const h = [...(dbMask.history || [])];
                     if (h[h.length - 1] === '×') h[h.length - 1] = '〇';
                     dbMask.history = h;
                 }
                 targetMask.aliases = [...new Set([...(targetMask.aliases || []), raw])];
                 targetMask.trainingPoints = dbMask?.trainingPoints ?? targetMask.trainingPoints;
-                if (quizBook) await DBManager.updateQuizBook(quizBook);
-                Utils.updateMessage(`「${raw}」も正解に登録しました。もう一度同じように答えると正解になります。`, 'success');
+
+                const booksToSave = new Set();
+                if (quizBook) booksToSave.add(quizBook);
+
+                // ② 同じ正解を持つ他のマスクにも反映
+                let extra = 0;
+                if (applyAll) {
+                    sameMasks.forEach(({ book, mask }) => {
+                        const before = (mask.aliases || []).length;
+                        mask.aliases = [...new Set([...(mask.aliases || []), raw])];
+                        if (mask.aliases.length !== before) { extra++; booksToSave.add(book); }
+                    });
+                    // 演習中のメモリ上データにも即反映（今のセッションから有効にする）
+                    (AppState.exerciseData || []).forEach(q => {
+                        (q.problemData || []).forEach(m => {
+                            if (keyOf(m.text) !== targetKey) return;
+                            m.aliases = [...new Set([...(m.aliases || []), raw])];
+                        });
+                    });
+                }
+
+                for (const b of booksToSave) await DBManager.updateQuizBook(b);
+
+                Utils.updateMessage(
+                    extra > 0
+                        ? `「${raw}」も正解に登録しました（同じ正解の他 ${extra} 箇所にも反映）。`
+                        : `「${raw}」も正解に登録しました。もう一度同じように答えると正解になります。`,
+                    'success');
                 close();
             });
 
             setTimeout(() => box.remove(), 20000);
         },
+
 
         showPassReveal(mask) {
             const canvas = DOM.imageCanvasExercise;
