@@ -229,6 +229,95 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- 演習セッションの一時退避と復帰（編集へ寄り道して戻る） ---
+    const ExerciseSession = {
+        saved: null,
+
+        save() {
+            if (!AppState.exerciseData?.length) return false;
+            this.saved = {
+                bookId: AppState.currentQuizBookId,
+                exerciseData: AppState.exerciseData,
+                masterProblems: AppState.exerciseMasterProblems,
+                originalProblems: AppState.originalExerciseProblems,
+                index: AppState.currentProblemIndexExercise,
+                round: AppState.exerciseRound,
+                isFirstRound: AppState.isFirstRound,
+                fitMode: AppState.exerciseFitMode
+            };
+            return true;
+        },
+
+        has() { return !!this.saved?.exerciseData?.length; },
+
+        clear() { this.saved = null; this.updateResumeButton(); },
+
+        // 編集で増えたマスクをDBの最新データから取り込む（解答済み状態は引き継ぐ）
+        syncFromDb() {
+            if (!this.has()) return;
+            const allQuizzes = (AppState.masterQuizList || []).flatMap(b => b.quizzes || []);
+            const mergeList = (list) => (list || []).map(q => {
+                const fresh = allQuizzes.find(x => x.id === q.id);
+                if (!fresh) return q;                       // 問題集ごと消えていた場合は退避データを使う
+                const copy = JSON.parse(JSON.stringify(fresh));
+                const prev = new Map((q.problemData || []).map(m => [m.id, m]));
+                copy.problemData = (copy.problemData || []).map(m => {
+                    const p = prev.get(m.id);
+                    return p ? { ...m, isAnswered: p.isAnswered, missedThisRound: p.missedThisRound } : m;
+                });
+                return copy;
+            });
+            const s = this.saved;
+            const before = s.exerciseData.reduce((n, q) => n + (q.problemData?.length || 0), 0);
+            s.exerciseData = mergeList(s.exerciseData);
+            s.masterProblems = mergeList(s.masterProblems);
+            s.originalProblems = mergeList(s.originalProblems);
+            const after = s.exerciseData.reduce((n, q) => n + (q.problemData?.length || 0), 0);
+            s.addedMasks = Math.max(0, after - before);
+        },
+
+        resume() {
+            if (!this.has()) return Utils.updateMessage('復帰できる演習がありません。', 'error');
+            this.syncFromDb();
+            const s = this.saved;
+            const total = s.exerciseData.length;
+
+            AppState.currentQuizBookId = s.bookId;
+            AppState.clearCache();
+            AppState.exerciseData = s.exerciseData;
+            AppState.exerciseMasterProblems = s.masterProblems;
+            AppState.originalExerciseProblems = s.originalProblems;
+            AppState.currentProblemIndexExercise = Math.min(s.index, total - 1);
+            AppState.exerciseRound = s.round;
+            AppState.isFirstRound = s.isFirstRound;
+            if (s.fitMode) AppState.exerciseFitMode = s.fitMode;
+            AppState.shouldShuffleOptions = true;
+
+            const added = s.addedMasks || 0;
+            this.saved = null;
+            UIManager.switchToMode('exercise');          // problems を渡さない＝新規開始しない
+            ExerciseModeManager.loadExerciseProblem();
+            Utils.updateMessage(
+                `▶ 演習に復帰しました（${AppState.currentProblemIndexExercise + 1}/${total}問目・${AppState.exerciseRound}周目）`
+                + (added > 0 ? `／追加した ${added} 個のマスクを反映` : ''),
+                'success');
+        },
+
+        // 編集モードにいるときだけ「演習に戻る」ボタンを出す
+        updateResumeButton() {
+            document.getElementById('resumeExerciseBtn')?.remove();
+            if (!this.has() || AppState.currentMode !== 'creation') return;
+            const s = this.saved;
+            const btn = document.createElement('button');
+            btn.id = 'resumeExerciseBtn';
+            btn.type = 'button';
+            btn.dataset.action = 'resume-exercise';
+            btn.textContent = `▶ 演習に戻る（${s.index + 1}/${s.exerciseData.length}問目・${s.round}周目）`;
+            btn.style.cssText = 'position:fixed; right:16px; top:16px; z-index:9997; padding:10px 14px; background:#2563eb; color:#fff; border-radius:8px; font-size:13px; font-weight:600; box-shadow:0 4px 14px rgba(0,0,0,.25);';
+            document.body.appendChild(btn);
+        }
+    };
+
 
     const Utils = {
         generateId: () => `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -430,12 +519,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 exercise: () => {
                     DOM.exerciseModeDiv.classList.remove('mode-hidden');
-                    if (options.problems) ExerciseModeManager.startExerciseMode(options.problems);
+                                   if (options.problems) { ExerciseSession.clear(); ExerciseModeManager.startExerciseMode(options.problems); }
+
                     Utils.updateMessage(`演習を開始してください。${exerciseTitle}`, 'success');
                 }
             };
             
             modeActions[mode]?.();
+                        ExerciseSession.updateResumeButton();
+
             DOM.globalHeaderInfo.textContent = currentBookName;
         },
 
@@ -2181,7 +2273,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 'set-group': () => this.handleSetGroup(target),
                 'cancel-group-mode': this.handleCancelGroupMode,
                 'start-filtered-exercise': this.handleStartFilteredExercise,
-                'edit-current-exercise': () => { const q = AppState.getCurrentExerciseQuiz(); if (q) UIManager.switchToMode('creation', { quizId: q.id }); }
+                        'edit-current-exercise': () => {
+                    const q = AppState.getCurrentExerciseQuiz();
+                    if (!q) return Utils.updateMessage('編集対象の問題が特定できません。', 'error');
+                    ExerciseSession.save();
+                    UIManager.switchToMode('creation', { quizId: q.id });
+                },
+                'resume-exercise': () => ExerciseSession.resume(),
+
             };
             if (handlers[action]) await handlers[action]();
         },
